@@ -13,8 +13,6 @@ from torch.utils.data.dataset import Dataset
 import torch.utils.data as Data
 from torch.utils.data import DataLoader
 from torchvision import transforms
-import torchvision
-import matplotlib
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from torchvision.models.resnet import ResNet, BasicBlock
@@ -25,9 +23,9 @@ train.csv 标签+数据
 test.csv 数据，标签输出到sample_submisson.csv
 """
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
-EPOCHS = 2
+EPOCHS = 3
 BATCH_SIZE = 256
-NUM_WORKER = 4
+NUM_WORKER =4
 learning_rate = 0.01
 momentum = 0.5
 log_interval = 10
@@ -38,19 +36,17 @@ test_reader, train_reader = train_test_split(csv_reader, train_size=0.2, random_
 
 class MyDataset(Dataset):
     def __init__(self, data, transform=None):
-        self.data = torch.tensor(
-            data[:, 1:].reshape(-1, 1, 28, 28), dtype=torch.float32
-        )
+        self.data = torch.tensor(data[:, 1:].reshape(-1, 1, 28, 28), dtype=torch.float32)
         self.labels = torch.tensor(data[:, 0], dtype=torch.long)
-        self.transform = transform
+        self.transform_func = transform  # 使用不同的名称
 
         # 计算均值和标准差
         self.mean, self.std = self.calculate_mean_std()
 
     def __getitem__(self, index):
         img, target = self.data[index], int(self.labels[index])
-        if self.transform is not None:
-            img = self.transform(img)
+        if self.transform_func is not None:  # 使用新的名称
+            img = self.transform_func(img)
         return img, target
 
     def __len__(self):
@@ -74,12 +70,14 @@ class MyDataset(Dataset):
 
 
 # 使用TensorDataset
-train_dataset = torch.utils.data.TensorDataset(
-    train_reader[:, 1:].reshape(-1, 1, 28, 28), train_reader[:, 0]
-)
-test_dataset = torch.utils.data.TensorDataset(
-    test_reader[:, 1:].reshape(-1, 1, 28, 28), test_reader[:, 0]
-)
+train_data = torch.tensor(train_reader[:, 1:].reshape(-1, 1, 28, 28), dtype=torch.float32)
+train_labels = torch.tensor(train_reader[:, 0], dtype=torch.long)
+train_dataset = torch.utils.data.TensorDataset(train_data, train_labels)
+
+
+test_data = torch.tensor(test_reader[:, 1:].reshape(-1, 1, 28, 28), dtype=torch.float32)
+test_labels = torch.tensor(test_reader[:, 0], dtype=torch.long)
+test_dataset = torch.utils.data.TensorDataset(test_data, test_labels)
 
 # DataLoader优化
 train_loader = DataLoader(
@@ -113,7 +111,7 @@ class ResNetModel(ResNet):
 
 
 if __name__ == "__main__":
-    net = ResNetModel()
+    net = ResNetModel().to(DEVICE)
     lossF = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(net.parameters())
     # 存储训练过程
@@ -186,13 +184,15 @@ if __name__ == "__main__":
     plt.title("Training and Test Loss")
     plt.xticks(np.arange(1, EPOCHS + 1, 1))  # 显示整数Epoch
 
+
+    # 显示百分比形式的训练准确率
     plt.subplot(1, 2, 2)
-    plt.plot(history["Train Accuracy"], label="Train Accuracy")
-    plt.plot(history["Test Accuracy"], label="Test Accuracy", color="red")
+    plt.plot([acc * 100 for acc in history["Train Accuracy"]], label="Train Accuracy")
+    plt.plot([acc * 100 for acc in history["Test Accuracy"]], label="Test Accuracy", color="red")
     plt.legend(loc="best")
     plt.grid(True)
     plt.xlabel("Epoch")
-    plt.ylabel("Accuracy")
+    plt.ylabel("Accuracy (%)")  # 修改y轴标签
     plt.title("Training and Test Accuracy")
     plt.xticks(np.arange(1, EPOCHS + 1, 1))  # 显示整数Epoch
 

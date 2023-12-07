@@ -30,7 +30,7 @@ learning_rate = 0.01
 momentum = 0.5
 log_interval = 10
 
-csv_reader = pd.read_csv(r"data/train.csv").values.astype("float32")
+csv_reader = pd.read_csv(r"Exp2/data/train.csv").values.astype("float32")
 test_reader, train_reader = train_test_split(csv_reader, train_size=0.2, random_state=1)
 
 
@@ -119,7 +119,7 @@ class Net(nn.Module):
 
 if __name__ == "__main__":
     # https://blog.csdn.net/peacefairy/article/details/108020179 归一化
-    net = Net()
+    net = Net().to(DEVICE)
     lossF = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(net.parameters())
     # 存储训练过程
