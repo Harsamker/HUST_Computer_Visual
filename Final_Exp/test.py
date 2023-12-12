@@ -3,6 +3,7 @@ from torchvision import models, transforms
 from PIL import Image
 import numpy as np
 import cv2
+import lime
 
 # Load pre-trained ResNet-50 model
 model = models.resnet50(pretrained=True)
