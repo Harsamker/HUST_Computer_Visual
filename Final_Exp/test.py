@@ -1,104 +1,34 @@
-import torch
-from torchvision import models, transforms
-from PIL import Image
+import os
 import numpy as np
-import cv2
-import lime
+from keras.preprocessing import image
+from keras.applications.inception_v3 import (
+    InceptionV3,
+    preprocess_input,
+    decode_predictions,
+)
 
-# Load pre-trained ResNet-50 model
-model = models.resnet50(pretrained=True)
-model.eval()
+# 定义InceptionV3模型
+inet_model = InceptionV3()
 
+# 读取图像
+image_path = os.path.join("./", "your_image.jpg")  # 将 "your_image.jpg" 替换为你的图像路径
+img = image.load_img(image_path, target_size=(299, 299))
 
-# Grad-CAM implementation for 9 channels
-class GradCAM:
-    def __init__(self, model, target_layer):
-        self.model = model
-        self.target_layer = target_layer
-        self.gradients = None
+# 将图像转换为numpy数组
+x = image.img_to_array(img)
 
-        self.model.eval()
-        self.register_hooks()
+# 在第0维度上添加一个维度，以匹配模型的输入要求
+x = np.expand_dims(x, axis=0)
 
-    def register_hooks(self):
-        def forward_hook(module, input, output):
-            self.feature_map = output
+# 预处理输入图像
+x = preprocess_input(x)
 
-        def backward_hook(module, grad_input, grad_output):
-            self.gradients = grad_output[0]
+# 进行预测
+predictions = inet_model.predict(x)
 
-        target_layer = self.model._modules.get(self.target_layer)
-        forward_handle = target_layer.register_forward_hook(forward_hook)
-        backward_handle = target_layer.register_backward_hook(backward_hook)
+# 解码预测结果
+decoded_predictions = decode_predictions(predictions)
 
-        self.handles = [forward_handle, backward_handle]
-
-    def generate_heatmap(self, input_image, target_class):
-        self.model.zero_grad()
-
-        output = self.model(input_image)
-        score = output[0, target_class]
-
-        score.backward()
-
-        weights = torch.mean(self.gradients, dim=(2, 3), keepdim=True)
-        cam = torch.sum(weights * self.feature_map, dim=1, keepdim=True)
-        cam = torch.relu(cam)
-
-        cam = cam.detach().numpy()[0, 0, :, :]
-        cam = cv2.resize(cam, (input_image.shape[3], input_image.shape[2]))
-        cam = cam - np.min(cam)
-        cam = cam / np.max(cam)
-
-        return cam
-
-
-def main():
-    # Load and preprocess input image
-    image_path = r"Final_Wxp\image\car&man.jpg"
-    image = Image.open(image_path).convert("RGB")  # Assuming the image is RGB
-    preprocess = transforms.Compose(
-        [
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-        ]
-    )
-
-    # Convert 9-channel image to a 3-channel image for Grad-CAM
-    image = image.convert("RGB")
-
-    input_image = preprocess(image).unsqueeze(0)
-
-    # Specify the target layer for Grad-CAM
-    target_layer = "layer4"
-
-    # Specify the target class index (replace with the correct index based on your task)
-    target_class = 0  # Replace with the correct index
-
-    # Initialize Grad-CAM
-    grad_cam = GradCAM(model, target_layer)
-
-    # Generate heatmap for the specified target class
-    heatmap = grad_cam.generate_heatmap(input_image, target_class)
-
-    # Resize the heatmap to match the original image size
-    heatmap = cv2.resize(heatmap, (3000, 2000))
-
-    # Apply color map and ensure heatmap has the same number of channels as the original image
-    heatmap = cv2.applyColorMap(np.uint8(255 * heatmap), cv2.COLORMAP_JET)
-    heatmap = cv2.merge([heatmap, heatmap, heatmap])
-
-    # Overlay the heatmap on the original image
-    overlaid_image = cv2.addWeighted(np.array(image), 0.7, heatmap, 0.3, 0)
-
-    # Display the original image
-    cv2.imshow("Original Image", cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR))
-
-    # Display the overlaid image
-    cv2.imshow("Grad-CAM Heatmap", overlaid_image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
-
-if __name__ == "__main__":
-    main()
+# 输出预测结果
+for i, (imagenet_id, label, score) in enumerate(decoded_predictions[0]):
+    print(f"{i + 1}: {label} ({score:.2f})")
