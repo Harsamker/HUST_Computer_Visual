@@ -20,7 +20,7 @@ BATCH_SIZE = 64
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 NUM_WORKERS = 8
 LearnRate = 0.01
-EPOCH = 30
+EPOCH = 20
 
 
 def conv3x3(
@@ -83,7 +83,7 @@ class ModifyBasicBlock(nn.Module):
             identity = self.downsample(x)
         out += identity
         # out = self.relu(out)
-        out = self.sigmod
+        out = self.sigmod(out)
         return out
 
 
@@ -165,10 +165,10 @@ if __name__ == "__main__":
     test_dataset = datasets.MNIST(root="./data", train=False, download=True, transform=transform)
     test_loader = DataLoader(dataset=test_dataset, batch_size=BATCH_SIZE, shuffle=False, pin_memory=True)
     train_loader = DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True)
-    #ResNet18 = ResNetModel(ModifyBasicBlock_NEW, [2, 2, 2,2], num_classes=10).to(DEVICE)
-    #ResNet18 = ResNetModel(BasicBlock, [3, 6, 6, 3], num_classes=10).to(DEVICE)
+    #ResNet18 = ResNetModel(ModifyBasicBlock_NEW, [1, 1, 1,1], num_classes=10).to(DEVICE)
+    ResNet18 = ResNetModel(BasicBlock, [1, 1, 1, 1], num_classes=10).to(DEVICE)
     #ResNet18 = ResNetModel(BasicBlock, [2, 2, 2, 2], num_classes=10).to(DEVICE) 
-    ResNet18 = ResNetModel(BasicBlock, [1, 1, 1,1], num_classes=10).to(DEVICE)
+    #ResNet18 = ResNetModel(ModifyBasicBlock, [1, 1, 1,1], num_classes=10).to(DEVICE)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(ResNet18.parameters(), lr=LearnRate)
 
