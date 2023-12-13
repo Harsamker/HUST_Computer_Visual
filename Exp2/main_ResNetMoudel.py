@@ -18,11 +18,14 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 BATCH_SIZE = 64
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-NUM_WORKERS=8
+NUM_WORKERS = 8
 LearnRate = 0.01
-EPOCH=30
+EPOCH = 30
 
-def conv3x3(in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, dilation: int = 1) -> nn.Conv2d:
+
+def conv3x3(
+    in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, dilation: int = 1
+) -> nn.Conv2d:
     """3x3 convolution with padding"""
     return nn.Conv2d(
         in_planes,
@@ -34,7 +37,9 @@ def conv3x3(in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, d
         bias=False,
         dilation=dilation,
     )
-#BasicBlock
+
+
+# BasicBlock
 class ModifyBasicBlock(nn.Module):
     expansion: int = 1
 
@@ -60,7 +65,7 @@ class ModifyBasicBlock(nn.Module):
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = norm_layer(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.sigmod=nn.Sigmoid()
+        self.sigmod = nn.Sigmoid()
         self.conv2 = conv3x3(planes, planes)
         self.bn2 = norm_layer(planes)
         self.downsample = downsample
@@ -70,16 +75,17 @@ class ModifyBasicBlock(nn.Module):
         identity = x
         out = self.conv1(x)
         out = self.bn1(out)
-        out=self.relu(out)
-        #out = self.sigmod(out)
+        # out = self.relu(out)
+        out = self.sigmod(out)
         out = self.conv2(out)
         out = self.bn2(out)
         if self.downsample is not None:
             identity = self.downsample(x)
         out += identity
-        out = self.relu(out)
-        #out=self.sigmod
+        # out = self.relu(out)
+        out = self.sigmod
         return out
+
 
 class ModifyBasicBlock_NEW(nn.Module):
     expansion: int = 1
@@ -106,7 +112,7 @@ class ModifyBasicBlock_NEW(nn.Module):
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = norm_layer(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.sigmod=nn.Sigmoid()
+        self.sigmod = nn.Sigmoid()
         self.conv2 = conv3x3(planes, planes)
         self.bn2 = norm_layer(planes)
         self.conv3 = conv3x3(planes, planes)
@@ -118,17 +124,19 @@ class ModifyBasicBlock_NEW(nn.Module):
         identity = x
         out = self.conv1(x)
         out = self.bn1(out)
-        out=self.relu(out)
+        out = self.relu(out)
         out = self.conv2(out)
         out = self.bn2(out)
-        out=self.relu(out)
-        out=self.conv3(out)
-        out=self.bn3(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
         if self.downsample is not None:
             identity = self.downsample(x)
         out += identity
         out = self.relu(out)
         return out
+
+
 class ResNetModel(ResNet):
     def __init__(self, block, layers, num_classes=10):
         super(ResNetModel, self).__init__(block, layers)
@@ -241,17 +249,17 @@ if __name__ == "__main__":
 
     plt.figure(figsize=(12, 6))
     plt.subplot(1, 2, 1)
-    plt.plot(train_loss_list, label='Train Loss')
-    plt.plot(test_loss_list, label='Test Loss')
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
+    plt.plot(train_loss_list, label="Train Loss")
+    plt.plot(test_loss_list, label="Test Loss")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
     plt.legend()
 
     plt.subplot(1, 2, 2)
-    plt.plot(train_acc_list, label='Train Accuracy')
-    plt.plot(test_acc_list, label='Test Accuracy')
-    plt.xlabel('Epochs')
-    plt.ylabel('Accuracy (%)')
+    plt.plot(train_acc_list, label="Train Accuracy")
+    plt.plot(test_acc_list, label="Test Accuracy")
+    plt.xlabel("Epochs")
+    plt.ylabel("Accuracy (%)")
     plt.legend()
 
     plt.show()
