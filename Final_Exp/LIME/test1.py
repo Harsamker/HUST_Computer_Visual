@@ -15,7 +15,7 @@ inet_model = InceptionV3()
 
 # 读取图像
 image_path = os.path.join("./", r"Final_Exp\image\car1.jpg")
-img = image.load_img(image_path, target_size=(474, 266))
+img = image.load_img(image_path, target_size=(299, 299))
 
 # 将图像转换为numpy数组
 x = image.img_to_array(img)
