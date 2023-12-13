@@ -9,12 +9,7 @@ import matplotlib.pyplot as plt
 from torchvision.models.resnet import ResNet, BasicBlock
 import torch.nn.functional as F
 from functools import partial
-from typing import Any, Callable, List, Optional, Type, Union
 import torch.optim.lr_scheduler as lr_scheduler
-
-import torch
-import torch.nn as nn
-from torch import Tensor
 
 BATCH_SIZE = 64
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -40,6 +35,8 @@ class ResNetModel(ResNet):
         x = self.fc(x)
         return F.log_softmax(x, dim=1)
 
+
+ResNet18 = ResNetModel(BasicBlock, [1, 1, 1, 1], num_classes=10).to(DEVICE)
 
 transform = transforms.Compose(
     [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
@@ -136,7 +133,7 @@ if __name__ == "__main__":
         )
     print(f"Final Test Acc: {test_acc_epoch:.2f}%")
     print(f"Final Train Acc: {train_acc_epoch:.2f}%")
-    torch.save(ResNet18, r"Exp2/model/NewModel.pth")
+    torch.save(ResNet18, r"Exp3/model/NewModel.pth")
 
     plt.figure(figsize=(12, 6))
     plt.subplot(1, 2, 1)
