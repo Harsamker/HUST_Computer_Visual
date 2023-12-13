@@ -154,8 +154,9 @@ class ResNetModel(ResNet):
         return F.log_softmax(x, dim=1)
 
 
-# ResNet18 = ResNetModel(ModifyBasicBlock_NEW, [2, 2, 2,2], num_classes=10).to(DEVICE)
-ResNet18 = ResNetModel(ModifyBasicBlock, [2, 2, 2, 2], num_classes=10).to(DEVICE)
+# 不同的网络
+ResNet18 = ResNetModel(ModifyBasicBlock_NEW, [2, 2, 2, 2], num_classes=10).to(DEVICE)
+# ResNet18 = ResNetModel(ModifyBasicBlock, [2, 2, 2, 2], num_classes=10).to(DEVICE)
 # ResNet18 = ResNetModel(BasicBlock, [3, 6, 6, 3], num_classes=10).to(DEVICE)
 # ResNet18 = ResNetModel(BasicBlock, [2, 2, 2, 2], num_classes=10).to(DEVICE)
 transform = transforms.Compose(
