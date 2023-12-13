@@ -49,7 +49,7 @@ fig, axes = plt.subplots(1, 2, figsize=(10, 5))
 # 显示原始图像
 axes[0].imshow(img)
 axes[0].set_title("Original Image")
-
+ 
 # 显示LIME解释的图像
 temp, mask = explanation.get_image_and_mask(
     explanation.top_labels[0], positive_only=False, num_features=5, hide_rest=False

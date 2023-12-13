@@ -10,10 +10,11 @@ from torchvision.models.resnet import ResNet, BasicBlock
 import torch.nn.functional as F
 from functools import partial
 from typing import Any, Callable, List, Optional, Type, Union
-
+import numpy as np
 import torch
 import torch.nn as nn
 from torch import Tensor
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 BATCH_SIZE = 64
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -144,29 +145,43 @@ class ResNetModel(ResNet):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         return F.log_softmax(x, dim=1)
-ResNet18 = ResNetModel(ModifyBasicBlock_NEW, [2, 2, 2,2], num_classes=10).to(DEVICE)
-#ResNet18 = ResNetModel(BasicBlock, [3, 6, 6, 3], num_classes=10).to(DEVICE)
-#ResNet18 = ResNetModel(BasicBlock, [2, 2, 2, 2], num_classes=10).to(DEVICE)
-transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
-train_dataset = datasets.MNIST(root="./data", train=True, download=True, transform=transform)
-test_dataset=datasets.MNIST(root="./data", train=False,download=True, transform=transform)
-test_loader = DataLoader(dataset=test_dataset, batch_size=BATCH_SIZE, shuffle=False,pin_memory=True)
-train_loader = DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True,pin_memory=True)    
+
 test_loss_list=[]
 test_acc_list=[]
 train_loss_list = []
 train_acc_list = []
 
 if __name__ == "__main__":
-    
+    transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+    train_dataset = datasets.MNIST(root="./data", train=True, download=True, transform=transform)
+    test_dataset = datasets.MNIST(root="./data", train=False, download=True, transform=transform)
+    test_loader = DataLoader(dataset=test_dataset, batch_size=BATCH_SIZE, shuffle=False, pin_memory=True)
+    train_loader = DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True)
+    #ResNet18 = ResNetModel(ModifyBasicBlock_NEW, [2, 2, 2,2], num_classes=10).to(DEVICE)
+    #ResNet18 = ResNetModel(BasicBlock, [3, 6, 6, 3], num_classes=10).to(DEVICE)
+    #ResNet18 = ResNetModel(BasicBlock, [2, 2, 2, 2], num_classes=10).to(DEVICE) 
+    ResNet18 = ResNetModel(BasicBlock, [1, 1, 1,1], num_classes=10).to(DEVICE)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(ResNet18.parameters(), lr=LearnRate)
-    for epoch in range(EPOCH): 
+
+    test_loss_list = []
+    test_acc_list = []
+    train_loss_list = []
+    train_acc_list = []
+
+    scheduler = ReduceLROnPlateau(optimizer, mode='max', patience=3, factor=0.5, verbose=True)
+
+    for epoch in range(EPOCH):
         process_bar = tqdm(enumerate(train_loader, 0), desc=f"Epoch {epoch + 1}", unit="batch", total=len(train_loader))
-        #running_loss = 0.0
-        #mini_batch_loss_train = []
+
+        total_train_loss = 0.0
+        correct_train = 0
+        total_train = 0
+        digit_correct = np.zeros(10)
+        digit_total = np.zeros(10)
+
         for i, data in process_bar:
-            ResNet18.train() 
+            ResNet18.train()
             inputs, labels = data
             inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
             optimizer.zero_grad()
@@ -174,59 +189,52 @@ if __name__ == "__main__":
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            '''
-            running_loss += loss.item()
-            mini_batch_loss_train.append(running_loss / 100)
-            running_loss = 0.0
-        plt.plot(mini_batch_loss_train, label=f'Train Epoch {epoch + 1}')
-        plt.xlabel('Mini-batch')
-        plt.ylabel('Loss')
-        plt.legend()
-        plt.title(f'Mini-batch Training Loss - Epoch {epoch + 1}')
-        plt.show()
-        net.eval()
-        '''
-        total_train_loss = 0.0
-        correct_train = 0
-        total_train = 0
-        with torch.no_grad():
-            for train_data in train_loader:
-                train_images, train_labels = train_data
-                train_images, train_labels = train_images.to(DEVICE), train_labels.to(DEVICE)
-                train_outputs = ResNet18(train_images)
-                train_loss = criterion(train_outputs, train_labels)
-                total_train_loss += train_loss.item()
-                _, train_predicted = torch.max(train_outputs.data, 1)
-                total_train += train_labels.size(0)
-                correct_train += (train_predicted == train_labels).sum().item()
+
+            total_train_loss += loss.item()
+            _, train_predicted = torch.max(outputs.data, 1)
+            total_train += labels.size(0)
+            correct_train += (train_predicted == labels).sum().item()
+
+            for i in range(10):
+                digit_total[i] += (labels == i).sum().item()
+                digit_correct[i] += ((train_predicted == i) & (labels == i)).sum().item()
 
         train_loss_epoch = total_train_loss / len(train_loader)
         train_acc_epoch = 100 * correct_train / total_train
 
         train_loss_list.append(train_loss_epoch)
         train_acc_list.append(train_acc_epoch)
-        
+
         total_test_loss = 0.0
         correct_test = 0
         total_test = 0
-        with torch.no_grad():
-            for test_data in test_loader:
-                test_images, test_labels = test_data
-                test_images, test_labels = test_images.to(DEVICE), test_labels.to(DEVICE)
-                test_outputs = ResNet18(test_images)
-                test_loss = criterion(test_outputs, test_labels)
-                total_test_loss += test_loss.item()
-                _, test_predicted = torch.max(test_outputs.data, 1)
-                total_test += test_labels.size(0)
-                correct_test += (test_predicted == test_labels).sum().item()
+
+        for test_data in test_loader:
+            test_images, test_labels = test_data
+            test_images, test_labels = test_images.to(DEVICE), test_labels.to(DEVICE)
+            test_outputs = ResNet18(test_images)
+            test_loss = criterion(test_outputs, test_labels)
+            total_test_loss += test_loss.item()
+            _, test_predicted = torch.max(test_outputs.data, 1)
+            total_test += test_labels.size(0)
+            correct_test += (test_predicted == test_labels).sum().item()
 
         test_loss_epoch = total_test_loss / len(test_loader)
         test_acc_epoch = 100 * correct_test / total_test
 
         test_loss_list.append(test_loss_epoch)
         test_acc_list.append(test_acc_epoch)
+
+        for i in range(10):
+            digit_acc = 100 * digit_correct[i] / digit_total[i]
+            print(f"Epoch {epoch + 1}, Digit {i} Accuracy: {digit_acc:.2f}%")
+
         print(f"Epoch {epoch + 1}: Train Loss: {train_loss_epoch:.6f}, Train Accuracy: {train_acc_epoch:.2f}%")
         print(f"Epoch {epoch + 1}: Test Loss: {test_loss_epoch:.6f}, Test Accuracy: {test_acc_epoch:.2f}%")
+
+        # 更新学习率
+        scheduler.step(test_acc_epoch)
+        
     print(f"Final Test Acc: {test_acc_epoch:.2f}%")
     print(f"Final Train Acc: {train_acc_epoch:.2f}%")
     torch.save(ResNet18, r"Exp2/model/NewModel.pth")

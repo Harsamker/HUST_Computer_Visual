@@ -1,11 +1,7 @@
 import os
 import numpy as np
 from keras.preprocessing import image
-from keras.applications.inception_v3 import (
-    InceptionV3,
-    preprocess_input,
-    decode_predictions,
-)
+from keras.applications.inception_v3 import InceptionV3, preprocess_input, decode_predictions
 from lime import lime_image
 from skimage.segmentation import mark_boundaries
 import matplotlib.pyplot as plt
@@ -15,7 +11,7 @@ inet_model = InceptionV3()
 
 # 读取图像
 image_path = os.path.join("./", r"Final_Exp\image\car1.jpg")
-img = image.load_img(image_path, target_size=(474, 266))
+img = image.load_img(image_path, target_size=(299, 299))
 
 # 将图像转换为numpy数组
 x = image.img_to_array(img)
@@ -43,16 +39,26 @@ explainer = lime_image.LimeImageExplainer()
 explanation = explainer.explain_instance(
     x[0], inet_model.predict, top_labels=5, num_samples=1000
 )
+from skimage.segmentation import mark_boundaries
+import matplotlib.pyplot as plt
+
+# 使用plt.subplots创建一个包含三个子图的图表
+fig, axes = plt.subplots(1, 4, figsize=(15, 5))
 
 # 显示原始图像
-plt.imshow(img)
-plt.title("Original Image")
-plt.show()
+axes[0].imshow(img)
+axes[0].set_title("Original Image")
 
-# 显示LIME解释的图像
-temp, mask = explanation.get_image_and_mask(
-    explanation.top_labels[0], positive_only=False, num_features=5, hide_rest=False
-)
-plt.imshow(mark_boundaries(temp / 2 + 0.5, mask))
-plt.title("LIME Explanation")
+# 显示LIME解释的图像（前三个标签）
+for i, label_id in enumerate(explanation.top_labels[:3]):
+    temp, mask = explanation.get_image_and_mask(
+        label_id, positive_only=True, num_features=5, hide_rest=True
+    )
+    lime_img = mark_boundaries(temp / 2 + 0.5, mask)
+    
+    # 在子图中显示LIME解释的图像
+    axes[i + 1].imshow(lime_img)
+    axes[i + 1].set_title(f"LIME Explanation: {decoded_predictions[0][label_id][1]}")
+
+# 显示图表
 plt.show()
