@@ -10,6 +10,7 @@ from torchvision.models.resnet import ResNet, BasicBlock
 import torch.nn.functional as F
 from functools import partial
 from typing import Any, Callable, List, Optional, Type, Union
+import torch.optim.lr_scheduler as lr_scheduler
 
 import torch
 import torch.nn as nn
@@ -40,8 +41,6 @@ class ResNetModel(ResNet):
         return F.log_softmax(x, dim=1)
 
 
-# 用BasicBlock训练
-ResNet18 = ResNetModel(BasicBlock, [2, 2, 2, 2], num_classes=10).to(DEVICE)
 transform = transforms.Compose(
     [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
 )
@@ -63,8 +62,12 @@ train_loss_list = []
 train_acc_list = []
 
 if __name__ == "__main__":
+    # 用BasicBlock训练
+    ResNet18 = ResNetModel(BasicBlock, [1, 1, 1, 1], num_classes=10).to(DEVICE)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(ResNet18.parameters(), lr=LearnRate)
+    scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+
     for epoch in range(EPOCH):
         process_bar = tqdm(
             enumerate(train_loader, 0),
@@ -81,6 +84,7 @@ if __name__ == "__main__":
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
+        scheduler.step()  # 在每个epoch结束时调整学习率
         total_train_loss = 0.0
         correct_train = 0
         total_train = 0
