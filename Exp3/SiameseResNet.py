@@ -10,133 +10,214 @@ import torch.nn.functional as F
 import torch.optim.lr_scheduler as lr_scheduler
 import random
 from torchvision.transforms.functional import to_pil_image
+from torch.utils.data import Dataset
 
 BATCH_SIZE = 64
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-NUM_WORKERS = 8
-LearnRate = 0.01
-EPOCH = 30
+EPOCH = 50
+NUMWORKER = 8
 
 
-class SiameseResNet(ResNet):
-    def __init__(self, block, layers, num_classes=1):
-        super(SiameseResNet, self).__init__(block, layers)
-        self.conv1 = nn.Conv2d(2, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.fc = nn.Linear(512, num_classes)
+# 数据集类 - 创建成对的MNIST图像
+class PairedMNIST(Dataset):
+    def __init__(self, mnist_dataset):
+        self.mnist_dataset = mnist_dataset
+        self.pairs = self._create_pairs()
 
-    def forward(self, x1, x2):
-        x = torch.cat((x1, x2), dim=1)
+    def _create_pairs(self):
+        label_to_indices = {label: [] for label in range(10)}
+        for idx, (_, label) in enumerate(self.mnist_dataset):
+            label_to_indices[label].append(idx)
+
+        pairs = []
+        for idx in tqdm(range(len(self.mnist_dataset) // 10), desc="Creating pairs"):
+            _, label = self.mnist_dataset[idx]
+
+            # 同一标签的成对图像
+            same_label_indices = label_to_indices[label]
+            pair_idx = random.choice(same_label_indices)
+            pairs.append((idx, pair_idx, 1))
+
+            # 不同标签的成对图像
+            different_label_indices = label_to_indices[random.choice([l for l in range(10) if l != label])]
+            pair_idx = random.choice(different_label_indices)
+            pairs.append((idx, pair_idx, 0))
+        return pairs
+
+    def __getitem__(self, index):
+        idx1, idx2, same_class = self.pairs[index]
+        img1, _ = self.mnist_dataset[idx1]
+        img2, _ = self.mnist_dataset[idx2]
+        # 将两个图像沿通道维度堆叠
+        paired_image = torch.cat((img1, img2), 0)  # 结果形状为 [2, 28, 28]
+        return paired_image, same_class
+
+    def __len__(self):
+        return len(self.pairs)
+
+
+# 修改后的ResNet模型
+class ModifiedResNet(nn.Module):
+    def __init__(self, block, layers):
+        super(ModifiedResNet, self).__init__()
+        self.inplanes = 64  # 初始值为64，与self.conv1的输出通道数一致
+        self.conv1 = nn.Conv2d(2, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = nn.BatchNorm2d(self.inplanes)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(512 * block.expansion, 2)
+
+    def _make_layer(self, block, planes, blocks, stride=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(
+                nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(planes * block.expansion),
+            )
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample))
+        self.inplanes = planes * block.expansion
+        for _ in range(1, blocks):
+            layers.append(block(self.inplanes, planes))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
         x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
-        x = F.adaptive_avg_pool2d(x, (1, 1))
-        x = x.view(x.size(0), -1)
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
         x = self.fc(x)
-        return F.log_softmax(x, dim=1)
+        return x
 
 
-class SiameseMNISTDataset(torch.utils.data.Dataset):
-    def __init__(self, mnist_dataset, split="train", transform=None):
-        self.mnist_dataset = mnist_dataset
-        self.split = split
-        self.transform = transform
-        self.labels = self.mnist_dataset.targets
-        self.indices = list(range(len(self.mnist_dataset)))
-        random.seed(42)
-        random.shuffle(self.indices)
-        split_size = int(0.1 * len(self.indices))
-        if split == "train":
-            self.indices = self.indices[:-split_size]
-        elif split == "test":
-            self.indices = self.indices[-split_size:]
+# 数据转换
+transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
 
-    def __getitem__(self, index):
-        img1, label1 = self.mnist_dataset[self.indices[index]]
-        is_same_class = random.choice([True, False])
-        if is_same_class:
-            # Choose another image from the same class
-            indices = [i for i, label in enumerate(self.labels) if label == label1]
-            index2 = random.choice(indices)
-        else:
-            # Choose another image from a different class
-            indices = [i for i, label in enumerate(self.labels) if label != label1]
-            index2 = random.choice(indices)
+# 加载MNIST数据集
+train_dataset = datasets.MNIST(root="./data", train=True, download=True, transform=transform)
+test_dataset = datasets.MNIST(root="./data", train=False, download=True, transform=transform)
 
-        img2, label2 = self.mnist_dataset[index2]
+# 创建成对的数据集
+train_paired_dataset = PairedMNIST(train_dataset)
+test_paired_dataset = PairedMNIST(test_dataset)
 
-        if self.transform:
-            img1 = self.transform(img1)
-            img2 = self.transform(img2)
+# 创建数据加载器
+train_loader = DataLoader(dataset=train_paired_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True)
+test_loader = DataLoader(dataset=test_paired_dataset, batch_size=BATCH_SIZE, shuffle=False, pin_memory=True)
 
-        return img1, img2, int(is_same_class)
+# 模型初始化
+model = ModifiedResNet(BasicBlock, [2, 2, 2, 2]).to(DEVICE)
 
-    def __len__(self):
-        return len(self.indices)
+# 损失函数和优化器
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.05)
+# 添加学习率调度器
+# step 10, x0.5
+scheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.2)
+# 测试循环
+test_loss_list = []
+test_acc_list = []
+# 记录训练指标的列表
+train_loss_list = []
+train_acc_list = []
 
-
-transform = transforms.Compose(
-    [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
-)
-
-mnist_train_dataset = datasets.MNIST(
-    root="./data", train=True, download=True, transform=transform
-)
-mnist_test_dataset = datasets.MNIST(
-    root="./data", train=False, download=True, transform=transform
-)
-
-siamese_train_dataset = SiameseMNISTDataset(
-    mnist_train_dataset, split="train", transform=transform
-)
-siamese_test_dataset = SiameseMNISTDataset(
-    mnist_test_dataset, split="test", transform=transform
-)
-
-siamese_train_loader = DataLoader(
-    siamese_train_dataset, batch_size=BATCH_SIZE, shuffle=True
-)
-siamese_test_loader = DataLoader(
-    siamese_test_dataset, batch_size=BATCH_SIZE, shuffle=False
-)
-
-siameseresnet = SiameseResNet(BasicBlock, [1, 1, 1, 1], num_classes=1).to(DEVICE)
-criterion = nn.BCELoss()
-optimizer = optim.Adam(siameseresnet.parameters(), lr=LearnRate)
-scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
-
-# 训练过程
 for epoch in range(EPOCH):
-    process_bar = tqdm(
-        enumerate(siamese_train_loader, 0),
-        desc=f"Epoch {epoch + 1}",
-        unit="batch",
-        total=len(siamese_train_loader),
-    )
-    for i, data in process_bar:
-        siameseresnet.train()
-        img1, img2, target = data
-        img1, img2, target = img1.to(DEVICE), img2.to(DEVICE), target.to(DEVICE)
+    model.train()
+    train_loss = 0
+    correct = 0
+    total = 0
+    progress_bar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{EPOCH}", leave=False)
+
+    for images, labels in progress_bar:
+        images, labels = images.to(DEVICE), labels.to(DEVICE)
         optimizer.zero_grad()
-        output = siameseresnet(img1, img2)
-        loss = criterion(output, target.float().view(-1, 1))
+        outputs = model(images)
+        loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
+        train_loss += loss.item()
+        pred = outputs.argmax(dim=1, keepdim=True)
+        correct += pred.eq(labels.view_as(pred)).sum().item()
+        total += labels.size(0)
+
+        # 更新进度条的描述
+        progress_bar.set_description(
+            f"Epoch {epoch + 1}/{EPOCH} [Train Loss: {train_loss / len(train_loader.dataset):.4f}, Train Acc: {100. * correct / total:.2f}%]")
+
     scheduler.step()
 
-# 测试过程
-siameseresnet.eval()
-correct = 0
-total = 0
-with torch.no_grad():
-    for i, data in enumerate(siamese_test_loader):
-        img1, img2, target = data
-        img1, img2, target = img1.to(DEVICE), img2.to(DEVICE), target.to(DEVICE)
-        output = siameseresnet(img1, img2)
-        predictions = (output > 0.5).float()
-        correct += (predictions == target.float().view(-1, 1)).sum().item()
-        total += target.size(0)
+    train_loss /= len(train_loader.dataset)
+    train_accuracy = 100. * correct / total
 
-accuracy = correct / total * 100
-print(f"Test Accuracy: {accuracy:.2f}%")
+    # 记录训练指标
+    train_loss_list.append(train_loss)
+    train_acc_list.append(train_accuracy)
+
+    print(f"Epoch {epoch + 1}: Train Loss: {train_loss:.4f}, Train Accuracy: {train_accuracy:.2f}")
+
+    # 测试部分
+    model.eval()
+    test_loss = 0
+    correct = 0
+    with torch.no_grad():
+        for images, labels in test_loader:
+            images, labels = images.to(DEVICE), labels.to(DEVICE)
+            outputs = model(images)
+            # 在这里应用softmax
+            outputs_softmax = F.softmax(outputs, dim=1)
+            test_loss += criterion(outputs_softmax, labels).item()
+            pred = outputs_softmax.argmax(dim=1, keepdim=True)
+            correct += pred.eq(labels.view_as(pred)).sum().item()
+
+    test_loss /= len(test_loader.dataset)
+    test_accuracy = 100. * correct / len(test_loader.dataset)
+    # 记录测试指标
+    test_loss_list.append(test_loss)
+    test_acc_list.append(test_accuracy)
+
+    print(f"Epoch {epoch + 1}: Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.2f}")
+
+
+# 保存模型
+torch.save(model.state_dict(), "paired_mnist_resnet_model.pth")
+
+plt.figure(figsize=(15, 12))
+
+# 第一张子图，显示训练集损失
+plt.subplot(3, 1, 1)
+plt.plot(train_loss_list, label='Train Loss')
+plt.title('Train Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+
+# 第二张子图，显示测试集损失
+plt.subplot(3, 1, 2)
+plt.plot(test_loss_list, label='Test Loss')
+plt.title('Test Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+
+# 第三张子图，显示训练集准确率和测试集准确率
+plt.subplot(3, 1, 3)
+plt.plot(train_acc_list, label='Train Accuracy')
+plt.plot(test_acc_list, label='Test Accuracy')
+plt.title('Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.legend()
+
+plt.tight_layout()  # 调整布局，避免重叠
+plt.show()
