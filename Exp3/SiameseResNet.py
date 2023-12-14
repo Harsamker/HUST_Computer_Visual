@@ -25,39 +25,40 @@ class PairMNIST(Dataset):
         self.pairs = self._create_pairs()
 
     def _create_pairs(self):
-        #创建0-9 10分类索引
-        label_map = {0,1,2,3,4,5,6,7,8,9}
-        #将对应标签图片加入到分类索引中
+        label_map = {label: [] for label in range(10)}
         for pic, (_, label) in enumerate(self.mnist_dataset):
             label_map[label].append(pic)
-
         pairs = []
-        #分别取取minst数据集10%作为训练集和测试集
+        #10%minst
         for pic in tqdm(range(len(self.mnist_dataset) // 10), desc="Creating pairs"):
+            
             _, label = self.mnist_dataset[pic]
+            same_label = label_map[label]
+            pair_idx = random.choice(same_label)
+            
+            img1, _ = self.mnist_dataset[pic]
+            
+            img2, _ = self.mnist_dataset[pair_idx]
+            # 将两个图像沿通道维度堆叠
+            # 结果形状为 [2, 28, 28]，双通道输入
+            pair_same_pic = torch.cat((img1, img2), 0) 
+            pairs.append((pair_same_pic, 1))
+            different_label = label_map[random.choice([l for l in range(10) if l != label])]
+            pair_idx = random.choice(different_label)
+            #一正一负,同一张图片，另一张图片为一张相同的，一张不相同的
+            img3, _ = self.mnist_dataset[pair_idx]
+            pair_diff_pic = torch.cat((img1, img3), 0) 
+            pairs.append((pair_diff_pic, 0))
 
-            # 同一标签
-            same_label_pic = label_map[label]
-            pair_idx = random.choice(same_label_pic)
-            pairs.append((pic, pair_idx, 1))
-
-            # 不同标签
-            different_label_pic = label_map[random.choice([l for l in range(10) if l != label])]
-            pair_idx = random.choice(different_label_pic)
-            pairs.append((pic, pair_idx, 0))
         return pairs
 
     def __getitem__(self, index):
-        idx1, idx2, same_class = self.pairs[index]
-        img1, _ = self.mnist_dataset[idx1]
-        img2, _ = self.mnist_dataset[idx2]
-        # 将两个图像沿通道维度堆叠
-        # # 结果形状为 [2, 28, 28]
-        paired_pic = torch.cat((img1, img2), 0) 
-        return paired_pic, same_class
+        paired_pic, same_flag = self.pairs[index]
+        return paired_pic, same_flag
 
     def __len__(self):
         return len(self.pairs)
+
 
 
 # 修改后的ResNet模型，
@@ -65,6 +66,7 @@ class SiameseResNet(nn.Module):
     def __init__(self, block, layers):
         super(SiameseResNet, self).__init__()
         self.inplanes = 64  # 初始值为64，与self.conv1的输出通道数一致
+        #输入通道为2
         self.conv1 = nn.Conv2d(2, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
@@ -116,9 +118,9 @@ train_dataset = PairMNIST(train_dataset)
 test_dataset = PairMNIST(test_dataset)
 train_loader = DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True)
 test_loader = DataLoader(dataset=test_dataset,    batch_size=BATCH_SIZE, shuffle=False, pin_memory=True)
-model = SiameseResNet(BasicBlock, [2, 4, 4, 2]).to(DEVICE)
+ResNet = SiameseResNet(BasicBlock, [2, 4, 4, 2]).to(DEVICE)
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.05)
+optimizer = optim.Adam(ResNet.parameters(), lr=0.05)
 # 添加学习率调度器
 # step 5, x0.2
 scheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.2)
@@ -128,7 +130,7 @@ train_loss_list = []
 train_acc_list = []
 
 for epoch in range(EPOCH):
-    model.train()
+    ResNet.train()
     train_loss = 0
     correct = 0
     total = 0
@@ -136,7 +138,7 @@ for epoch in range(EPOCH):
     for images, labels in progress_bar:
         images, labels = images.to(DEVICE), labels.to(DEVICE)
         optimizer.zero_grad()
-        outputs = model(images)
+        outputs = ResNet(images)
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
@@ -144,8 +146,7 @@ for epoch in range(EPOCH):
         pred = outputs.argmax(dim=1, keepdim=True)
         correct += pred.eq(labels.view_as(pred)).sum().item()
         total += labels.size(0)
-
-        # 更新进度条的描述
+        
         progress_bar.set_description(
             f"Epoch {epoch + 1}/{EPOCH} [Train Loss: {train_loss / total:.4f}, Train Acc: {100. * correct / total:.2f}%]")
 
@@ -157,13 +158,13 @@ for epoch in range(EPOCH):
     train_acc_list.append(train_accuracy)
 
     print(f"Epoch {epoch + 1}: Train Loss: {train_loss:.4f}, Train Accuracy: {train_accuracy:.2f}%")
-    model.eval()
+    ResNet.eval()
     test_loss = 0
     correct = 0
     with torch.no_grad():
         for images, labels in test_loader:
             images, labels = images.to(DEVICE), labels.to(DEVICE)
-            outputs = model(images)
+            outputs = ResNet(images)
             outputs_softmax = F.softmax(outputs, dim=1)
             test_loss += criterion(outputs_softmax, labels).item()
             pred = outputs_softmax.argmax(dim=1, keepdim=True)
@@ -178,7 +179,7 @@ for epoch in range(EPOCH):
 
 
 # 保存模型
-torch.save(model.state_dict(), "SiameseResNetModel.pth")
+torch.save(ResNet.state_dict(), "SiameseResNetModel.pth")
 
 plt.figure(figsize=(15, 8))
 
