@@ -42,7 +42,7 @@ def apply_cam(image_path, model, target_layer, target_class):
 
 
 image_paths = [r"Exp4\data4\dog.jpg", r"Exp4\data4\cat.jpg", r"Exp4\data4\both.jpg"]
-target_layer = model.features[10]
+target_layer = model.features[10]#第十层 (10): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
 target_classes = [0, 1] 
 type_map = {0: 'Cat', 1: 'Dog'}
 
