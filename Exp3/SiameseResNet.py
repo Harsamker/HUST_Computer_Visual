@@ -29,25 +29,26 @@ class PairMNIST(Dataset):
         for pic, (_, label) in enumerate(self.mnist_dataset):
             label_map[label].append(pic)
         pairs = []
-        #10%minst
+        # 10%minst
         for pic in tqdm(range(len(self.mnist_dataset) // 10), desc="Creating pairs"):
-            
             _, label = self.mnist_dataset[pic]
             same_label = label_map[label]
             pair_idx = random.choice(same_label)
-            
+
             img1, _ = self.mnist_dataset[pic]
-            
+
             img2, _ = self.mnist_dataset[pair_idx]
             # 将两个图像沿通道维度堆叠
             # 结果形状为 [2, 28, 28]，双通道输入
-            pair_same_pic = torch.cat((img1, img2), 0) 
+            pair_same_pic = torch.cat((img1, img2), 0)
             pairs.append((pair_same_pic, 1))
-            different_label = label_map[random.choice([l for l in range(10) if l != label])]
+            different_label = label_map[
+                random.choice([l for l in range(10) if l != label])
+            ]
             pair_idx = random.choice(different_label)
-            #一正一负,同一张图片，另一张图片为一张相同的，一张不相同的
+            # 一正一负,同一张图片，另一张图片为一张相同的，一张不相同的
             img3, _ = self.mnist_dataset[pair_idx]
-            pair_diff_pic = torch.cat((img1, img3), 0) 
+            pair_diff_pic = torch.cat((img1, img3), 0)
             pairs.append((pair_diff_pic, 0))
 
         return pairs
@@ -60,14 +61,15 @@ class PairMNIST(Dataset):
         return len(self.pairs)
 
 
-
 # 修改后的ResNet模型，
 class SiameseResNet(nn.Module):
     def __init__(self, block, layers):
         super(SiameseResNet, self).__init__()
         self.inplanes = 64  # 初始值为64，与self.conv1的输出通道数一致
-        #输入通道为2
-        self.conv1 = nn.Conv2d(2, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
+        # 输入通道为2
+        self.conv1 = nn.Conv2d(
+            2, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False
+        )
         self.bn1 = nn.BatchNorm2d(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -80,10 +82,16 @@ class SiameseResNet(nn.Module):
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
-        #原生定义的下采样层
+        # 原生定义的下采样层
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
-                nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False),
+                nn.Conv2d(
+                    self.inplanes,
+                    planes * block.expansion,
+                    kernel_size=1,
+                    stride=stride,
+                    bias=False,
+                ),
                 nn.BatchNorm2d(planes * block.expansion),
             )
         layers = []
@@ -109,21 +117,32 @@ class SiameseResNet(nn.Module):
 
 
 # 数据转换
-transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
-train_dataset = datasets.MNIST(root="./data", train=True, download=True, transform=transform)
-test_dataset = datasets.MNIST(root="./data", train=False, download=True, transform=transform)
+transform = transforms.Compose(
+    [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
+)
+train_dataset = datasets.MNIST(
+    root="./data", train=True, download=True, transform=transform
+)
+test_dataset = datasets.MNIST(
+    root="./data", train=False, download=True, transform=transform
+)
 
 # 创建MINST图像对
 train_dataset = PairMNIST(train_dataset)
 test_dataset = PairMNIST(test_dataset)
-train_loader = DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True)
-test_loader = DataLoader(dataset=test_dataset,    batch_size=BATCH_SIZE, shuffle=False, pin_memory=True)
-ResNet = SiameseResNet(BasicBlock, [2, 4, 4, 2]).to(DEVICE)
+train_loader = DataLoader(
+    dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True
+)
+test_loader = DataLoader(
+    dataset=test_dataset, batch_size=BATCH_SIZE, shuffle=False, pin_memory=True
+)
 criterion = nn.CrossEntropyLoss()
+
+ResNet = SiameseResNet(BasicBlock, [2, 4, 4, 2]).to(DEVICE)
 optimizer = optim.Adam(ResNet.parameters(), lr=0.05)
 # 添加学习率调度器
 # step 5, x0.2
-scheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.2)
+scheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
 test_loss_list = []
 test_acc_list = []
 train_loss_list = []
@@ -146,18 +165,21 @@ for epoch in range(EPOCH):
         pred = outputs.argmax(dim=1, keepdim=True)
         correct += pred.eq(labels.view_as(pred)).sum().item()
         total += labels.size(0)
-        
+
         progress_bar.set_description(
-            f"Epoch {epoch + 1}/{EPOCH} [Train Loss: {train_loss / total:.4f}, Train Acc: {100. * correct / total:.2f}%]")
+            f"Epoch {epoch + 1}/{EPOCH} [Train Loss: {train_loss / total:.4f}, Train Acc: {100. * correct / total:.2f}%]"
+        )
 
     scheduler.step()
 
     train_loss /= len(train_loader.dataset)
-    train_accuracy = 100. * correct / total
+    train_accuracy = 100.0 * correct / total
     train_loss_list.append(train_loss)
     train_acc_list.append(train_accuracy)
 
-    print(f"Epoch {epoch + 1}: Train Loss: {train_loss:.4f}, Train Accuracy: {train_accuracy:.2f}%")
+    print(
+        f"Epoch {epoch + 1}: Train Loss: {train_loss:.4f}, Train Accuracy: {train_accuracy:.2f}%"
+    )
     ResNet.eval()
     test_loss = 0
     correct = 0
@@ -171,11 +193,13 @@ for epoch in range(EPOCH):
             correct += pred.eq(labels.view_as(pred)).sum().item()
 
     test_loss /= len(test_loader.dataset)
-    test_accuracy = 100. * correct / len(test_loader.dataset)
+    test_accuracy = 100.0 * correct / len(test_loader.dataset)
     test_loss_list.append(test_loss)
     test_acc_list.append(test_accuracy)
 
-    print(f"Epoch {epoch + 1}: Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.2f}%")
+    print(
+        f"Epoch {epoch + 1}: Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.2f}%"
+    )
 
 
 # 保存模型
@@ -184,19 +208,19 @@ torch.save(ResNet.state_dict(), r"Exp3/model/SiameseResNetModel.pth")
 plt.figure(figsize=(15, 8))
 
 plt.subplot(2, 1, 1)
-plt.plot(train_loss_list, label='Train Loss')
-plt.plot(test_loss_list, label='Test Loss')
-plt.title('Train and Test Loss')
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
+plt.plot(train_loss_list, label="Train Loss")
+plt.plot(test_loss_list, label="Test Loss")
+plt.title("Train and Test Loss")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
 plt.legend()
 
 plt.subplot(2, 1, 2)
-plt.plot(train_acc_list, label='Train Accuracy')
-plt.plot(test_acc_list, label='Test Accuracy')
-plt.title('Train and Test Accuracy')
-plt.xlabel('Epoch')
-plt.ylabel('Accuracy')
+plt.plot(train_acc_list, label="Train Accuracy")
+plt.plot(test_acc_list, label="Test Accuracy")
+plt.title("Train and Test Accuracy")
+plt.xlabel("Epoch")
+plt.ylabel("Accuracy")
 plt.legend()
 
 plt.tight_layout()
