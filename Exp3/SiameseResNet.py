@@ -179,7 +179,7 @@ for epoch in range(EPOCH):
 
 
 # 保存模型
-torch.save(ResNet.state_dict(), "SiameseResNetModel.pth")
+torch.save(ResNet.state_dict(), r"Exp3/model/SiameseResNetModel.pth")
 
 plt.figure(figsize=(15, 8))
 
