@@ -105,7 +105,7 @@ def batch_predict(model, img_np, segments, num_segments, num_samples_per_batch, 
 
 def main():
     img_path = "Final_Exp/image/car1.jpg"
-    num_samples = 1000  # 总样本数
+    num_samples = 100  # 总样本数
     num_samples_per_batch = 500  # 每个批次的样本数
     num_batches = num_samples // num_samples_per_batch  # 总批次数
 

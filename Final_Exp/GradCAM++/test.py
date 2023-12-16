@@ -73,7 +73,7 @@ class GradCAMPlusPlus:
             hook.remove()
 
 def main():
-    img_path = "Final_Exp/image/DogPersonCat1.jpg"
+    img_path = "Final_Exp/image/car&man.jpg"
     #img_path = r"Final_Exp\data4\both.jpg"
     # 加载模型和预处理图像
     model = inception_v3(pretrained=True).to(device)

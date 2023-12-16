@@ -1,11 +1,13 @@
 import numpy as np
 import torch
-import torch.nn.functional as F
 import torchvision.transforms as transforms
 from torchvision.models import inception_v3
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from PIL import Image
 import cv2
+import torch.nn.functional as F
+from keras.applications.inception_v3 import decode_predictions
 
 # 检查GPU是否可用
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -31,7 +33,7 @@ class ScoreCAM:
         self.target_layer = target_layer
         self.feature_maps = None
         self.hooks = []
-        self.resize_size = resize_size
+        self.resize_size = resize_size  # 新增：特征图的下采样尺寸
 
         self.register_hooks()
 
@@ -43,7 +45,8 @@ class ScoreCAM:
             if module[0] == self.target_layer:
                 self.hooks.append(module[1].register_forward_hook(forward_hook))
 
-    def generate_heatmap(self, input_tensor, batch_size=16):
+    def generate_heatmap(self, input_tensor, class_idx, batch_size=16):
+        # 获取特征图
         _ = self.model(input_tensor)
         feature_maps = self.feature_maps
 
@@ -64,7 +67,6 @@ class ScoreCAM:
 
                 masked_input = input_tensor * mask
                 output = self.model(masked_input)
-                class_idx = output.argmax(dim=1).item()
                 score = F.softmax(output, dim=1)[0, class_idx]
                 batch_heatmap += score * mask.squeeze(0).squeeze(0)
 
@@ -83,44 +85,60 @@ class ScoreCAM:
         heatmap = (heatmap - np.min(heatmap)) / (np.max(heatmap) - np.min(heatmap) + 1e-8)
         return heatmap
 
+
     def clear_hooks(self):
         for hook in self.hooks:
             hook.remove()
-
+            
 def main():
-    img_path = "Final_Exp/image/car1.jpg"
+    img_path = r"Final_Exp\image\DogPersonCat1.jpg"
 
     # 加载模型和预处理图像
     model = inception_v3(pretrained=True).to(device)
     model.eval()
-    img = Image.open(img_path).convert('RGB')
     img_tensor = preprocess_image(img_path)
 
+    # 获取模型的预测
+    preds = model(img_tensor).detach().cpu().numpy()
+    top_preds = np.argsort(-preds[0])[:5]
+    decoded_preds = decode_predictions(preds)[0]
+    top_labels = [label for _, label, _ in decoded_preds[:5]]
+
     # 初始化 ScoreCAM 对象
-    target_layer = 'Mixed_7c.branch_pool.conv'  # 指定目标层，适用于 Inception V3
+    target_layer = 'Mixed_7c.branch_pool.conv'
     scorecam = ScoreCAM(model, target_layer)
 
-    # 生成热力图
-    heatmap = scorecam.generate_heatmap(img_tensor)
+    # 创建图像布局
+    fig, axes = plt.subplots(1, 6, figsize=(24, 5))  # 将子图数量修改为1行6列
 
-    # 将热力图叠加到原始图像上
-    img_np = np.array(img)
-    heatmap_resized = cv2.resize(heatmap, (img_np.shape[1], img_np.shape[0]))
-    heatmap_color = cv2.applyColorMap(np.uint8(255 * heatmap_resized), cv2.COLORMAP_JET)
-    superimposed_img = heatmap_color * 0.4 + img_np
+    # 显示原始图像
+    img_np = np.array(Image.open(img_path))
+    axes[0].imshow(img_np)
+    axes[0].set_title("Original Image")
+    axes[0].axis('off')
 
-    # 显示结果
-    fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-    ax[0].imshow(superimposed_img / 255)
-    ax[0].set_title('ScoreCAM Overlay')
-    ax[0].axis('off')
+    # 自定义颜色映射：红色到蓝色
+    cmap = mcolors.LinearSegmentedColormap.from_list("custom_map", ["blue", "white", "red"])
 
-    # 在第二个子图中显示水平的颜色条
-    cax = ax[1].imshow(heatmap_resized, cmap='jet')
-    ax[1].set_title('Heatmap')
-    ax[1].axis('off')
-    fig.colorbar(cax, ax=ax[1], orientation='horizontal')
+    for i, class_idx in enumerate(top_preds):
+        # 生成热力图
+        heatmap = scorecam.generate_heatmap(img_tensor, class_idx)
+        heatmap_resized = cv2.resize(heatmap, (img_np.shape[1], img_np.shape[0]))
+        heatmap_color = cv2.applyColorMap(np.uint8(255 * heatmap_resized), cv2.COLORMAP_JET)
+        heatmap_color = cv2.cvtColor(heatmap_color, cv2.COLOR_BGR2RGB)
+        superimposed_img = heatmap_color * 0.4 + img_np
 
+        # 显示热力图
+        axes[i + 1].imshow(superimposed_img / 255)
+        axes[i + 1].set_title(f"Class: {top_labels[i]}")
+        axes[i + 1].axis('off')
+
+    # 添加颜色条
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=0, vmax=1))
+    sm.set_array([])
+    cbar = plt.colorbar(sm, orientation='horizontal', pad=0.05, ax=axes.ravel().tolist(), aspect=40)
+    cbar.set_label('Heatmap Intensity')
+    plt.suptitle('ScoreCAM', fontsize=12)
     plt.show()
 
     # 清理

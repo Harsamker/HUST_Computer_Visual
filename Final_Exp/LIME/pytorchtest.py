@@ -53,7 +53,7 @@ def create_perturbations_parallel(img_np, num_segments, num_samples):
     return np.array(perturbed_images)
 
 # 参数设置
-num_samples = 1000
+num_samples = 100
 
 img_tensor = preprocess_image(img_path)
 img_np = img_tensor.squeeze().permute(1, 2, 0).cpu().numpy()
