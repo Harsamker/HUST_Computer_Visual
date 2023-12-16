@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 inet_model = InceptionV3()
 
 # 读取图像
-image_path = os.path.join("./", r"Final_Exp\image\car1.jpg")
+image_path = os.path.join("./", r"Final_Exp\image\car2.jpg")
 img = image.load_img(image_path, target_size=(299, 299))
 
 # 将图像转换为numpy数组
@@ -30,7 +30,7 @@ decoded_predictions = decode_predictions(predictions)
 
 # 输出预测结果
 for i, (imagenet_id, label, score) in enumerate(decoded_predictions[0]):
-    print(f"{i + 1}: {label} ({score:.2f})")
+    print(f"{i + 1}: {label}{imagenet_id}({score:.2f})")
 
 # 使用LIME进行图像解释
 explainer = lime_image.LimeImageExplainer()
@@ -52,13 +52,13 @@ axes[0].set_title("Original Image")
 # 显示LIME解释的图像（前三个标签）
 for i, label_id in enumerate(explanation.top_labels[:3]):
     temp, mask = explanation.get_image_and_mask(
-        label_id, positive_only=True, num_features=5, hide_rest=True
+        label_id, positive_only=True, num_features=5, hide_rest=False
     )
     lime_img = mark_boundaries(temp / 2 + 0.5, mask)
     
     # 在子图中显示LIME解释的图像
     axes[i + 1].imshow(lime_img)
-    axes[i + 1].set_title(f"LIME Explanation: {decoded_predictions[0][label_id][1]}")
+    axes[i + 1].set_title(f"LIME Explanation: {i}")
 
 # 显示图表
 plt.show()

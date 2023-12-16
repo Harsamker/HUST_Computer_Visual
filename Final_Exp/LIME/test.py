@@ -1,60 +1,170 @@
-import os
+import matplotlib as mpl
 import numpy as np
-from keras.preprocessing import image
-from keras.applications.inception_v3 import (
-    InceptionV3,
-    preprocess_input,
-    decode_predictions,
-)
-from lime import lime_image
-from skimage.segmentation import mark_boundaries
+import torch
+import torchvision.transforms as transforms
+from torchvision.models import inception_v3
+from sklearn.linear_model import LinearRegression
+from skimage.segmentation import quickshift, mark_boundaries
 import matplotlib.pyplot as plt
+from PIL import Image
+import cv2
+from tqdm import tqdm
+import concurrent.futures
+from matplotlib.colors import ListedColormap
 
-# 定义InceptionV3模型
-inet_model = InceptionV3()
+# 检查GPU是否可用
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# 使用LIME自带的示例图像
-img = lime_image.load_image(pos=0)
+def preprocess_image(img):
+    if isinstance(img, str):  
+        img_pil = Image.open(img).convert('RGB')
+    else:  
+        img_pil = Image.fromarray((img * 255).astype(np.uint8)).convert('RGB')
 
-# 在第0维度上添加一个维度，以匹配模型的输入要求
-x = np.expand_dims(img, axis=0)
+    transform = transforms.Compose([
+        transforms.Resize((299, 299)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
 
-# 预处理输入图像
-x = preprocess_input(x)
+    img_tensor = transform(img_pil).to(device)
+    return img_tensor.unsqueeze(0)
 
-# 进行预测
-predictions = inet_model.predict(x)
+def create_perturbation(img_np, segments, num_segments, idx):
+    perturbed_img = img_np.copy()
+    mask = np.random.binomial(1, 0.5, num_segments).astype(bool)  # 使用二项分布生成掩码
+    perturbed_img[~mask[segments]] = 0  # 关闭被掩码遮住的区域
+    return perturbed_img
 
-# 解码预测结果
-decoded_predictions = decode_predictions(predictions)
 
-# 输出预测结果
-for i, (imagenet_id, label, score) in enumerate(decoded_predictions[0]):
-    print(f"{i + 1}: {label} ({score:.2f})")
+def create_perturbations_parallel(img_np, segments, num_segments, num_samples):
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        perturbed_images = list(tqdm(executor.map(lambda x: create_perturbation(img_np, segments, num_segments, x), range(num_samples)),
+                                     desc="Creating perturbations total{}", unit="image"))
 
-# 获取概率最高的标签索引
-top_label_index = np.argmax(predictions[0])
+    return np.array(perturbed_images)
 
-# 使用LIME进行图像解释
-explainer = lime_image.LimeImageExplainer()
 
-# 注意：由于LIME在解释图像时可能需要大量样本，这里只使用一个样本。在实际应用中，你可能需要更多样本以获得更好的解释。
-explanation = explainer.explain_instance(
-    np.array(x[0]), inet_model.predict, top_labels=[top_label_index], num_samples=1000
-)
+# 在predict_perturbations函数中
+def predict_perturbations(model, perturbed_images):
+    preds = []
+    for perturbed_img in tqdm(perturbed_images, desc="Predicting perturbations", unit="image"):
+        perturbed_tensor = preprocess_image(perturbed_img).to(device)  # 将扰动图片移到 GPU
+        with torch.no_grad():
+            preds.append(model(perturbed_tensor).cpu().numpy())
+    preds_array = np.array(preds)
+    print("Predictions shape:", preds_array.shape)
+    return preds_array
 
-# 显示原始图像和LIME解释的图像在同一张图表中
-fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+def train_linear_model(segments, avg_activation_per_segment, preds):
+    coefficients = np.zeros(segments.max() + 1)
 
-# 显示原始图像
-axes[0].imshow(img)
-axes[0].set_title("Original Image")
- 
-# 显示LIME解释的图像
-temp, mask = explanation.get_image_and_mask(
-    explanation.top_labels[0], positive_only=False, num_features=5, hide_rest=False
-)
-axes[1].imshow(mark_boundaries(temp / 2 + 0.5, mask))
-axes[1].set_title("LIME Explanation")
+    for i in tqdm(range(segments.max() + 1), desc="Training linear model", unit="segment"):
+        X = avg_activation_per_segment[i, :].reshape(-1, 1)
+        if X.sum() > 0:
+            Y = preds
+            lin_reg = LinearRegression(n_jobs=-1).fit(X, Y)
+            coefficients[i] = lin_reg.coef_[0]
+        else:
+            coefficients[i] = 0
 
-plt.show()
+    return coefficients
+
+
+from keras.applications.inception_v3 import preprocess_input, decode_predictions
+
+import matplotlib.gridspec as gridspec
+
+def batch_predict(model, img_np, segments, num_segments, num_samples_per_batch, num_batches):
+    all_preds = []
+    avg_activation_per_segment = np.zeros((num_segments, num_batches * num_samples_per_batch))
+
+    for batch_idx in tqdm(range(num_batches), desc="Batch predictions"):
+        # 创建当前批次的扰动图像
+        perturbed_images = create_perturbations_parallel(img_np, segments, num_segments, num_samples_per_batch)
+
+        # 对当前批次的扰动图像进行预测
+        batch_preds = []
+        for perturbed_img in perturbed_images:
+            perturbed_tensor = preprocess_image(perturbed_img).to(device)
+            with torch.no_grad():
+                batch_pred = model(perturbed_tensor).cpu().numpy()
+                batch_preds.append(batch_pred)
+
+                # 更新每个区域的平均激活
+                for i in range(num_segments):
+                    avg_activation_per_segment[i, batch_idx * num_samples_per_batch:(batch_idx + 1) * num_samples_per_batch] = (perturbed_img[segments == i].mean(axis=(0, 1)) > 0).astype(int)
+
+        all_preds.extend(batch_preds)
+
+        # 清除当前批次的扰动图像，释放内存
+        del perturbed_images
+
+    return np.array(all_preds), avg_activation_per_segment
+
+
+def main():
+    img_path = "Final_Exp/image/car1.jpg"
+    num_samples = 1000  # 总样本数
+    num_samples_per_batch = 500  # 每个批次的样本数
+    num_batches = num_samples // num_samples_per_batch  # 总批次数
+
+    model = inception_v3(pretrained=True).to(device)
+    model.eval()
+
+    img = Image.open(img_path).convert('RGB')
+    img_np = np.array(img)
+    img_tensor = preprocess_image(img_path)
+    img_np_tensor = img_tensor.squeeze().permute(1, 2, 0).cpu().numpy()
+
+    preds = model(img_tensor).detach().cpu().numpy()
+    top_preds = np.argsort(-preds[0])[:3]
+    decoded_preds = decode_predictions(preds)[0]
+    top_labels = [label for _, label, _ in decoded_preds[:3]]
+
+    segments = quickshift(img_np_tensor, kernel_size=4, max_dist=200, ratio=0.2)
+    num_segments = np.unique(segments).shape[0]
+
+    # 分批预测所有扰动图像
+    preds, avg_activation_per_segment = batch_predict(model, img_np_tensor, segments, num_segments, num_samples_per_batch, num_batches)
+
+    fig = plt.figure(figsize=(15, 8))
+    gs = gridspec.GridSpec(2, 4, width_ratios=[3, 3, 3, 0.1])
+
+    ax0 = plt.subplot(gs[1, 0])
+    ax0.imshow(img_np)
+    ax0.set_title("Original Image")
+    ax0.axis('off')
+
+    for i, label in enumerate(top_labels[:3]):
+        subplot_index = i + 1
+        target_class = top_preds[i]
+        target_preds = preds.squeeze(axis=1)[:, target_class]
+        coefficients = train_linear_model(segments, avg_activation_per_segment, target_preds)  # 使用新参数
+        ax = plt.subplot(gs[1, subplot_index])
+        visualize_lime(img_np, segments, coefficients, label, ax)
+
+    cax = plt.subplot(gs[:, -1])
+    cmap = plt.get_cmap('jet')
+    norm = plt.Normalize(vmin=0, vmax=1)
+    cb = plt.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap), cax=cax, orientation='vertical')
+    cb.set_label('Importance')
+
+    plt.tight_layout()
+    plt.show()
+
+def visualize_lime(img_np, segments, coefficients, target_class, ax):
+    mask = np.zeros(segments.shape)
+    for i, coef in enumerate(coefficients):
+        if coef > 0:
+            mask[segments == i] = coef
+    mask = cv2.resize(mask, (img_np.shape[1], img_np.shape[0]))
+    heatmap = np.uint8(255 * mask)
+    heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+    overlay = cv2.addWeighted(img_np, 1, heatmap, 0.5, 0)
+    ax.imshow(overlay)
+    ax.set_title(f"Class: {target_class}")
+    ax.axis('off')
+
+if __name__ == "__main__":
+    main()

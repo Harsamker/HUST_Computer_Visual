@@ -74,8 +74,8 @@ class ScoreCAM:
             score = self.model(weighted_input)
             scores[i] = score[0, class_idx]
 
-        # 生成加权的特征图
-        weights = F.softmax(scores, dim=0).view(1, nc, 1, 1)
+        # 修改权重计算
+        weights = scores / scores.sum()
         cam = (weights * activation).sum(dim=1, keepdim=True)
         cam = F.relu(cam)
         cam = F.interpolate(cam, input_tensor.shape[2:], mode='bilinear', align_corners=False)
@@ -95,14 +95,11 @@ def apply_scorecam(image_path, model, target_layer, target_class):
     rgb_img = np.float32(rgb_img) / 255
     input_tensor = preprocess_image(image_path)
 
-    # 实例化 ScoreCAM
     scorecam = ScoreCAM(model=model, target_layer=target_layer)
-
-    # 使用 ScoreCAM
     saliency_map = scorecam.forward(input_tensor, class_idx=target_class)
     heatmap = scorecam.generate_heatmap(saliency_map)
 
-    # 显示 ScoreCAM 的结果
+    # 显示结果
     plt.imshow(rgb_img, alpha=0.5)
     plt.imshow(heatmap.squeeze(), cmap='hot', alpha=0.5)
     plt.show()

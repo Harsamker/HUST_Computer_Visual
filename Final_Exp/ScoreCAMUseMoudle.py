@@ -24,18 +24,28 @@ def preprocess_image(img_path):
 
 def apply_scorecam(image_path, model, target_layer, target_class):
     rgb_img = cv2.imread(image_path, 1)[:, :, ::-1]
-    rgb_img = np.float32(rgb_img) / 255
     input_tensor = preprocess_image(image_path)
 
-    # 使用 ScoreCAM
-    cam = ScoreCAM(model=model)
+    # 获取目标层
+    target_layers = [target_layer]
+
+    # 设置前向钩子修改模型输出
+    def forward_hook(module, input, output):
+        return torch.softmax(output, dim=1)[:, target_class].unsqueeze(0)
+
+    hook_handle = model.fc.register_forward_hook(forward_hook)
+
+    # 实例化 ScoreCAM
+    cam = ScoreCAM(model=model, target_layers=target_layers)
 
     # 获取 ScoreCAM 热图
-    grayscale_cam = cam(input_tensor=input_tensor, target_layer=target_layer, target_category=target_class)
+    grayscale_cam = cam(input_tensor=input_tensor)
 
-    # 显示结果
-    img = Image.open(image_path)
-    visualization = show_cam_on_image(np.array(img), grayscale_cam, use_rgb=True)
+    # 移除钩子
+    hook_handle.remove()
+
+    # 叠加热图到原图
+    visualization = show_cam_on_image(rgb_img, grayscale_cam, use_rgb=True)
 
     plt.imshow(visualization)
     plt.axis('off')
@@ -43,7 +53,8 @@ def apply_scorecam(image_path, model, target_layer, target_class):
 
 # 使用 ScoreCAM 进行可视化
 image_path = r"Exp4\data4\both.jpg"
-target_layer = model.features[10]  # 使用第十层 (10): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-target_class = 0  # 目标类别为狗
+target_layer = model.features[10]  # 获取第十层 Conv2d 作为目标层
+
+target_class = 0  # 目标类别
 
 apply_scorecam(image_path, model, target_layer, target_class)
