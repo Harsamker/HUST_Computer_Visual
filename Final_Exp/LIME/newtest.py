@@ -10,17 +10,11 @@ import cv2
 from tqdm.auto import tqdm
 import matplotlib.colors as mcolors
 from keras.applications.inception_v3 import decode_predictions
+from concurrent.futures import ThreadPoolExecutor
+
 # 检查GPU是否可用
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-def predict(model, imgs):
-    model.eval()
-    with torch.no_grad():
-        preds = []
-        for img in imgs:
-            img_tensor = preprocess_image(Image.fromarray(img))
-            pred = model(img_tensor)
-            preds.append(pred.cpu().numpy())
-    return np.array(preds)
+
 def preprocess_image(img):
     transform = transforms.Compose([
         transforms.Resize((299, 299)),
@@ -29,7 +23,6 @@ def preprocess_image(img):
     ])
     img_tensor = transform(img).to(device)
     return img_tensor.unsqueeze(0)
-from concurrent.futures import ThreadPoolExecutor
 
 def create_perturbations(img_np, segments, num_perturb):
     perturbed_images = []
@@ -50,7 +43,15 @@ def create_perturbations(img_np, segments, num_perturb):
             
     return np.array(perturbed_images), np.array(weights)
 
-
+def predict(model, imgs):
+    model.eval()
+    with torch.no_grad():
+        preds = []
+        for img in imgs:
+            img_tensor = preprocess_image(Image.fromarray(img))
+            pred = model(img_tensor)
+            preds.append(pred.cpu().numpy())
+    return np.array(preds)
 
 def main():
     img_path = "Final_Exp/image/DogPersonCat1.jpg"
@@ -64,8 +65,7 @@ def main():
     perturbed_images, weights = create_perturbations(img_np, segments, num_perturb)
     
     preds = []
-    for i in tqdm(range(perturbed_images.shape[0]), desc="Predicting", leave=
-                  False):
+    for i in tqdm(range(perturbed_images.shape[0]), desc="Predicting", leave=False):
         pred = predict(model, [perturbed_images[i]])
         preds.append(pred[0])
     preds = np.array(preds)
@@ -73,20 +73,19 @@ def main():
     original_pred = predict(model, [img_np])[0]
 
     top_preds = np.argsort(-original_pred[0])[:5]
-    decoded_preds = decode_predictions(original_pred)[0]
+    decoded_preds = decode_predictions(original_pred[np.newaxis, :])[0]
     top_labels = [label for _, label, _ in decoded_preds[:5]]
 
-    fig, axes = plt.subplots(1, 6, figsize=(20, 5))
-    axes[0].imshow(img_np)
-    axes[0].axis('off')
-    axes[0].set_title('Original Image')
+    fig, axarr = plt.subplots(1, 6, figsize=(20, 5))
+    axarr[0].imshow(img_np)
+    axarr[0].axis('off')
+    axarr[0].set_title('Original Image')
 
-    # 自定义颜色映射，使得低贡献度区域透明
     cmap = mcolors.LinearSegmentedColormap.from_list(
         "custom_map", [(0, "blue"), (0.5, "white"), (1, "red")]
     )
 
-    for idx, class_idx in enumerate(top_preds):
+    for i, class_idx in enumerate(top_preds):
         class_preds = preds[:, 0, class_idx]
         lin_reg = LinearRegression()
         lin_reg.fit(weights, class_preds)
@@ -96,22 +95,20 @@ def main():
         for segment_id, w in enumerate(coef):
             if w > 0:
                 exp_img[segments == segment_id] = w
-                masks[segments == segment_id] = 1  # Mask to combine heatmap with original image
+                masks[segments == segment_id] = 1
             else:
                 masks[segments == segment_id] = 0
         exp_img = (exp_img - exp_img.min()) / (exp_img.max() - exp_img.min())
         heatmap = cv2.applyColorMap(np.uint8(255 * exp_img), cv2.COLORMAP_JET)
         heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
-        # Combine original image with heatmap
         superimposed_img = np.where(masks[:, :, np.newaxis], heatmap * 0.4 + img_np * 0.6, img_np)
-        axes[idx + 1].imshow(superimposed_img.astype('uint8'))
-        axes[idx + 1].axis('off')
-        axes[idx + 1].set_title(f"Class: {top_labels[idx]}")
+        axarr[i + 1].imshow(superimposed_img.astype('uint8'))
+        axarr[i + 1].axis('off')
+        axarr[i + 1].set_title('Class: ' + top_labels[i][1])
 
-    # 添加颜色条
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=0, vmax=1))
     sm.set_array([])
-    cbar = plt.colorbar(sm, orientation='horizontal', pad=0.05, ax=axes.ravel().tolist(), aspect=40)
+    cbar = plt.colorbar(sm, orientation='horizontal', pad=0.05, ax=axarr.ravel().tolist(), aspect=40)
     cbar.set_label('Heatmap Intensity')
     plt.suptitle('LIME', fontsize=12)
     plt.show()
