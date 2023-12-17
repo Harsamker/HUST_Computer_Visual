@@ -9,7 +9,6 @@ import cv2
 import torch.nn.functional as F
 from keras.applications.inception_v3 import decode_predictions
 
-# 检查GPU是否可用
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def preprocess_image(img):
@@ -33,7 +32,7 @@ class ScoreCAM:
         self.target_layer = target_layer
         self.feature_maps = None
         self.hooks = []
-        self.resize_size = resize_size  # 新增：特征图的下采样尺寸
+        self.resize_size = resize_size  # 特征图的下采样尺寸
 
         self.register_hooks()
 
@@ -70,17 +69,11 @@ class ScoreCAM:
                 score = F.softmax(output, dim=1)[0, class_idx]
                 batch_heatmap += score * mask.squeeze(0).squeeze(0)
 
-                # 清除不再需要的变量
                 del mask, masked_input, output
-
-            # 累加每批次的结果
             heatmap += batch_heatmap
-
-            # 清除每批次的热力图和释放缓存
             del batch_heatmap
             torch.cuda.empty_cache()
 
-        # 归一化最终热力图
         heatmap = heatmap.cpu().detach().numpy()
         heatmap = (heatmap - np.min(heatmap)) / (np.max(heatmap) - np.min(heatmap) + 1e-8)
         return heatmap
@@ -90,50 +83,42 @@ class ScoreCAM:
         for hook in self.hooks:
             hook.remove()
             
-def main():
-    img_path = r"Final_Exp\image\DogPersonCat1.jpg"
 
-    # 加载模型和预处理图像
+if __name__ == "__main__":
+    img_path = r"Final_Exp\image\img1.jpg"
+
     model = inception_v3(pretrained=True).to(device)
     model.eval()
     img_tensor = preprocess_image(img_path)
 
-    # 获取模型的预测
     preds = model(img_tensor).detach().cpu().numpy()
     top_preds = np.argsort(-preds[0])[:5]
     decoded_preds = decode_predictions(preds)[0]
     top_labels = [label for _, label, _ in decoded_preds[:5]]
 
-    # 初始化 ScoreCAM 对象
     target_layer = 'Mixed_7c.branch_pool.conv'
     scorecam = ScoreCAM(model, target_layer)
 
-    # 创建图像布局
-    fig, axes = plt.subplots(1, 6, figsize=(24, 5))  # 将子图数量修改为1行6列
+    fig, axes = plt.subplots(1, 6, figsize=(24, 5)) 
 
-    # 显示原始图像
     img_np = np.array(Image.open(img_path))
     axes[0].imshow(img_np)
     axes[0].set_title("Original Image")
     axes[0].axis('off')
 
-    # 自定义颜色映射：红色到蓝色
     cmap = mcolors.LinearSegmentedColormap.from_list("custom_map", ["blue", "white", "red"])
 
     for i, class_idx in enumerate(top_preds):
-        # 生成热力图
         heatmap = scorecam.generate_heatmap(img_tensor, class_idx)
         heatmap_resized = cv2.resize(heatmap, (img_np.shape[1], img_np.shape[0]))
         heatmap_color = cv2.applyColorMap(np.uint8(255 * heatmap_resized), cv2.COLORMAP_JET)
         heatmap_color = cv2.cvtColor(heatmap_color, cv2.COLOR_BGR2RGB)
         superimposed_img = heatmap_color * 0.4 + img_np
 
-        # 显示热力图
         axes[i + 1].imshow(superimposed_img / 255)
         axes[i + 1].set_title(f"Class: {top_labels[i]}")
         axes[i + 1].axis('off')
 
-    # 添加颜色条
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=0, vmax=1))
     sm.set_array([])
     cbar = plt.colorbar(sm, orientation='horizontal', pad=0.05, ax=axes.ravel().tolist(), aspect=40)
@@ -141,8 +126,4 @@ def main():
     plt.suptitle('ScoreCAM', fontsize=12)
     plt.show()
 
-    # 清理
     scorecam.clear_hooks()
-
-if __name__ == "__main__":
-    main()

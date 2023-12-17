@@ -10,7 +10,7 @@ import cv2
 from tqdm.auto import tqdm
 import matplotlib.colors as mcolors
 from keras.applications.inception_v3 import decode_predictions
-# 检查GPU是否可用
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def predict(model, imgs):
     model.eval()
@@ -34,14 +34,13 @@ from concurrent.futures import ThreadPoolExecutor
 def create_perturbations(img_np, segments, num_perturb):
     perturbed_images = []
     weights = []
-    
     def create_perturbation(i):
         perturbed_img = img_np.copy()
         active_pixels = np.random.choice([False, True], len(np.unique(segments)))
         for segment_id, active in enumerate(active_pixels):
             perturbed_img[segments == segment_id] = 0 if not active else perturbed_img[segments == segment_id]
         return perturbed_img, active_pixels
-    
+    #开多线程加速
     with ThreadPoolExecutor(max_workers=None) as executor:
         results = list(tqdm(executor.map(create_perturbation, range(num_perturb)), total=num_perturb, desc="Creating Perturbations"))
         for perturbed_img, active_pixels in results:
@@ -50,10 +49,8 @@ def create_perturbations(img_np, segments, num_perturb):
             
     return np.array(perturbed_images), np.array(weights)
 
-
-
-def main():
-    img_path = "Final_Exp/image/DogPersonCat1.jpg"
+if __name__ == "__main__":
+    img_path = "Final_Exp/image/img1.jpg"
     model = inception_v3(pretrained=True).to(device)
     img = Image.open(img_path).convert('RGB')
     img_np = np.array(img)
@@ -96,25 +93,19 @@ def main():
         for segment_id, w in enumerate(coef):
             if w > 0:
                 exp_img[segments == segment_id] = w
-                masks[segments == segment_id] = 1  # Mask to combine heatmap with original image
+                masks[segments == segment_id] = 1 
             else:
                 masks[segments == segment_id] = 0
         exp_img = (exp_img - exp_img.min()) / (exp_img.max() - exp_img.min())
         heatmap = cv2.applyColorMap(np.uint8(255 * exp_img), cv2.COLORMAP_JET)
         heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
-        # Combine original image with heatmap
         superimposed_img = np.where(masks[:, :, np.newaxis], heatmap * 0.4 + img_np * 0.6, img_np)
         axes[idx + 1].imshow(superimposed_img.astype('uint8'))
         axes[idx + 1].axis('off')
         axes[idx + 1].set_title(f"Class: {top_labels[idx]}")
-
-    # 添加颜色条
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=0, vmax=1))
     sm.set_array([])
     cbar = plt.colorbar(sm, orientation='horizontal', pad=0.05, ax=axes.ravel().tolist(), aspect=40)
     cbar.set_label('Heatmap Intensity')
     plt.suptitle('LIME', fontsize=12)
     plt.show()
-
-if __name__ == "__main__":
-    main()

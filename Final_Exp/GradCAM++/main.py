@@ -9,7 +9,6 @@ import torch.nn.functional as F
 import matplotlib.colors as mcolors
 from keras.applications.inception_v3 import decode_predictions
 
-# 检查GPU是否可用
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def preprocess_image(img):
@@ -71,36 +70,25 @@ class GradCAMPlusPlus:
     def clear_hooks(self):
         for hook in self.hooks:
             hook.remove()
+    
 
-def main():
-    img_path = "Final_Exp/image/DogPersonCat1.jpg"
-    #img_path = r"Final_Exp\data4\both.jpg"
-    # 加载模型和预处理图像
+if __name__ == "__main__":
+    img_path = "Final_Exp/image/img1.jpg"
     model = inception_v3(pretrained=True).to(device)
     model.eval()
     img = Image.open(img_path).convert('RGB')
     img_tensor = preprocess_image(img_path)
-
-    # 获取模型的预测
     preds = model(img_tensor).detach().cpu().numpy()
     top_preds = np.argsort(-preds[0])[:5]
     decoded_preds = decode_predictions(preds)[0]
     top_labels = [label for _, label, _ in decoded_preds[:5]]
-
-    # 初始化 GradCAM++ 对象
     target_layer = 'Mixed_7c.branch_pool.conv'
     gradcam = GradCAMPlusPlus(model, target_layer)
-
-    # 创建图像布局
-    fig, axes = plt.subplots(1, 6, figsize=(18, 4))  # 将子图数量修改为6，以适应前5个标签和原始图像
-
-    # 显示原始图像
+    fig, axes = plt.subplots(1, 6, figsize=(18, 4))
     img_np = np.array(img)
     axes[0].imshow(img_np)
     axes[0].set_title("Original Image")
     axes[0].axis('off')
-
-    # 自定义颜色映射：蓝色到红色
     cmap = mcolors.LinearSegmentedColormap.from_list("custom_map", ["blue", "white", "red"])
 
     for i, class_idx in enumerate(top_preds):
@@ -110,25 +98,14 @@ def main():
         heatmap_color = cv2.applyColorMap(np.uint8(255 * heatmap_resized), cv2.COLORMAP_JET)
         heatmap_color = cv2.cvtColor(heatmap_color, cv2.COLOR_BGR2RGB)
         superimposed_img = heatmap_color * 0.4 + img_np
-
         # 显示热力图
         axes[i+1].imshow(superimposed_img / 255)
         axes[i+1].set_title(f"Class: {top_labels[i]}")
         axes[i+1].axis('off')
-
-    # 添加颜色条
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=0, vmax=1))
     sm.set_array([])
     cbar = plt.colorbar(sm, orientation='horizontal', pad=0.05, ax=axes.ravel().tolist(), aspect=40)
     cbar.set_label('Heatmap Intensity')
-
-    # 添加标题
     plt.suptitle('Grad-CAM++', fontsize=12)
-
     plt.show()
-
-    # 清理
     gradcam.clear_hooks()
-
-if __name__ == "__main__":
-    main()
