@@ -4,6 +4,8 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
+from pytorch_grad_cam import LayerCAM
+from pytorch_grad_cam.utils.image import show_cam_on_image
 
 # 预处理图像的函数
 def preprocess_image(img_path):
@@ -17,48 +19,26 @@ def preprocess_image(img_path):
     image = Image.open(img_path)
     image = transform(image).unsqueeze(0)
     return image
-def apply_custom_layer_cam(image_path, model, target_layer, target_class):
-    # 读取图像并进行预处理
+def apply_layer_cam(image_path, model, target_layer, target_class):
     rgb_img = cv2.imread(image_path, 1)[:, :, ::-1]
-    original_image = np.copy(rgb_img)
     rgb_img = np.float32(rgb_img) / 255
     input_tensor = preprocess_image(image_path)
 
-    # 前向传播
-    model.zero_grad()
-    output = model(input_tensor)
-    class_activation = output[:, target_class]
+    # 使用 LayerCAM
+    layer_cam = LayerCAM(model=model, target_layers=[target_layer], use_cuda=False)
+    target_category = lambda x: x[target_class]
 
-    # 反向传播
-    class_activation.backward()
+    # 获取 Layer-CAM 的热力图
+    grayscale_cam_layer = layer_cam(
+        input_tensor=input_tensor, targets=[target_category]
+    )
 
-    # 获取类激活对特征图的梯度
-    gradients = target_layer.gradients  # 假设梯度已经从钩子函数中获取
-    activations = target_layer.activations  # 假设激活已经从钩子函数中获取
+    # 将热力图应用于原始图像
+    layer_cam_image = show_cam_on_image(
+        rgb_img, grayscale_cam_layer[0, :], use_rgb=True
+    )
 
-    # 逐元素乘积
-    grad_activations = gradients * activations
-
-    # 将逐元素乘积后的结果进行ReLU操作，并在通道维度上求和来生成热图
-    cam = torch.relu(torch.sum(grad_activations, dim=1)).squeeze(0)
-
-    # 将热图转换为numpy格式并进行归一化处理
-    cam = cam.cpu().detach().numpy()
-    cam = cv2.resize(cam, (original_image.shape[1], original_image.shape[0]))
-    cam = np.maximum(cam, 0)  # ReLU
-    cam_normalized = cam / np.max(cam)  # 归一化
-
-    # 创建彩色热图
-    heatmap_colored = cv2.applyColorMap(np.uint8(255 * cam_normalized), cv2.COLORMAP_JET)
-    heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
-
-    # 将彩色热图叠加在原始图像上
-    superimposed_img = heatmap_colored * 0.4 + original_image * 0.6
-    superimposed_img = np.clip(superimposed_img, 0, 255).astype(np.uint8)
-
-    return superimposed_img
-
-
+    return layer_cam_image
 
 def apply_custom_grad_cam(image_path, model, target_layer, target_class):
     # 读取图像并进行预处理
@@ -87,12 +67,16 @@ def apply_custom_grad_cam(image_path, model, target_layer, target_class):
     # 将通道按梯度加权
     for i in range(activations.shape[1]):
         activations[:, i, :, :] *= pooled_gradients[i]
+
     # 对激活通道进行平均
     heatmap = torch.mean(activations, dim=1).squeeze()
+
     # 对热图进行 ReLU
     heatmap = np.maximum(heatmap.cpu().detach().numpy(), 0)
+
     # 对热图进行归一化
     heatmap /= np.max(heatmap)
+
     # 从热图创建图像
     heatmap = cv2.resize(heatmap, (original_image.shape[1], original_image.shape[0]))
     
@@ -108,7 +92,7 @@ def apply_custom_grad_cam(image_path, model, target_layer, target_class):
 
 
 
-#钩子函数
+# Hooks to capture the gradients and activations
 def get_activations_hook(module, input, output):
     target_layer.activations = output
 
@@ -118,11 +102,15 @@ def get_gradients_hook(module, input_grad, output_grad):
 # 加载模型
 model = torch.load("Exp4/torch_alex.pth")
 model.eval()
-target_layer = model.features[10] 
+
+# Add hooks to the target layer
+target_layer = model.features[10]  # Selecting the 10th layer as target layer
 target_layer.activations = None
 target_layer.gradients = None
 target_layer.register_forward_hook(get_activations_hook)
 target_layer.register_backward_hook(get_gradients_hook)
+
+# 图像路径和类别设置
 image_paths = ["Exp4/data4/dog.jpg", "Exp4/data4/cat.jpg", "Exp4/data4/both.jpg"]
 target_class_list = [0, 1]
 type_map = {0: "Cat", 1: "Dog"}
@@ -135,7 +123,7 @@ fig, axes = plt.subplots(num_rows, num_cols, figsize=(12, 8))
 for i, img_path in enumerate(image_paths):
     for j, target_class in enumerate(target_class_list):
         grad_cam_image = apply_custom_grad_cam(img_path, model, target_layer, target_class)
-        layer_cam_image = apply_custom_layer_cam(img_path, model, target_layer, target_class)  # 这个函数需要你根据LayerCAM的用法来实现
+        layer_cam_image = apply_layer_cam(img_path, model, target_layer, target_class)  # 这个函数需要你根据LayerCAM的用法来实现
 
         # 显示 Grad-CAM
         axes[i, j * 2].imshow(grad_cam_image)

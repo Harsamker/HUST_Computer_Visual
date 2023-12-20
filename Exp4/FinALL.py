@@ -108,7 +108,7 @@ def apply_custom_grad_cam(image_path, model, target_layer, target_class):
 
 
 
-#钩子函数
+# Hooks to capture the gradients and activations
 def get_activations_hook(module, input, output):
     target_layer.activations = output
 
@@ -118,11 +118,15 @@ def get_gradients_hook(module, input_grad, output_grad):
 # 加载模型
 model = torch.load("Exp4/torch_alex.pth")
 model.eval()
-target_layer = model.features[10] 
+
+# Add hooks to the target layer
+target_layer = model.features[10]  # Selecting the 10th layer as target layer
 target_layer.activations = None
 target_layer.gradients = None
 target_layer.register_forward_hook(get_activations_hook)
 target_layer.register_backward_hook(get_gradients_hook)
+
+# 图像路径和类别设置
 image_paths = ["Exp4/data4/dog.jpg", "Exp4/data4/cat.jpg", "Exp4/data4/both.jpg"]
 target_class_list = [0, 1]
 type_map = {0: "Cat", 1: "Dog"}
