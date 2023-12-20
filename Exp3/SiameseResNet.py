@@ -138,8 +138,8 @@ test_loader = DataLoader(
 )
 criterion = nn.CrossEntropyLoss()
 
-ResNet = SiameseResNet(BasicBlock, [2, 4, 4, 2]).to(DEVICE)
-optimizer = optim.Adam(ResNet.parameters(), lr=0.05)
+ResNet = SiameseResNet(BasicBlock, [2,4, 4, 2]).to(DEVICE)
+optimizer = optim.Adam(ResNet.parameters(), lr=0.01)
 # 添加学习率调度器
 # step 5, x0.2
 scheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
@@ -182,23 +182,38 @@ for epoch in range(EPOCH):
     )
     ResNet.eval()
     test_loss = 0
-    correct = 0
+    correct_same = 0 
+    correct_diff = 0 
+    total_same = 0   
+    total_diff = 0    
+
     with torch.no_grad():
         for images, labels in test_loader:
             images, labels = images.to(DEVICE), labels.to(DEVICE)
             outputs = ResNet(images)
             outputs_softmax = F.softmax(outputs, dim=1)
             test_loss += criterion(outputs_softmax, labels).item()
-            pred = outputs_softmax.argmax(dim=1, keepdim=True)
-            correct += pred.eq(labels.view_as(pred)).sum().item()
+
+            is_same = (labels == 1).nonzero(as_tuple=True)[0]
+            total_same += len(is_same)
+            correct_same += (outputs_softmax.argmax(dim=1)[is_same] == labels[is_same]).sum().item()
+
+            is_diff = (labels == 0).nonzero(as_tuple=True)[0]
+            total_diff += len(is_diff)
+            correct_diff += (outputs_softmax.argmax(dim=1)[is_diff] == labels[is_diff]).sum().item()
 
     test_loss /= len(test_loader.dataset)
-    test_accuracy = 100.0 * correct / len(test_loader.dataset)
+    test_accuracy = 100.0 * (correct_same + correct_diff) / (total_same + total_diff)
+
+    test_accuracy_same = 100.0 * correct_same / total_same
+    test_accuracy_diff = 100.0 * correct_diff / total_diff
+
     test_loss_list.append(test_loss)
     test_acc_list.append(test_accuracy)
 
     print(
-        f"Epoch {epoch + 1}: Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.2f}%"
+        f"Epoch {epoch + 1}: Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.2f}%\n"
+        f"Epoch {epoch + 1}: Same Img Acc: {test_accuracy_same:.2f}%, Diff Img Acc: {test_accuracy_diff:.2f}%"
     )
 
 
