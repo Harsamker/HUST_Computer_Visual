@@ -50,7 +50,7 @@ def create_perturbations(img_np, segments, num_perturb):
     return np.array(perturbed_images), np.array(weights)
 
 if __name__ == "__main__":
-    img_path = "Final_Exp/image/img1.jpg"
+    img_path = r"Final_Exp\data4\both.jpg"
     model = inception_v3(pretrained=True).to(device)
     img = Image.open(img_path).convert('RGB')
     img_np = np.array(img)
