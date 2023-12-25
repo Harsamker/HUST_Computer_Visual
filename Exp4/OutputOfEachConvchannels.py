@@ -6,7 +6,6 @@ from PIL import Image
 
 def preprocess_image(img_path):
     transform = transforms.Compose([
-        transforms.Resize((224, 224)),
         transforms.ToTensor(),
     ])
     image = Image.open(img_path)

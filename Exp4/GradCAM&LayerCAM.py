@@ -5,9 +5,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 
-def to_tensor(img_path):
+def preprocess_img(img_path):
     transform = transforms.Compose([
-        transforms.Resize((224, 224)),
         transforms.ToTensor(), 
     ])
     image = Image.open(img_path).convert('RGB')
@@ -22,13 +21,11 @@ def get_grad_hook(module, input, output):
     
 def layercam(image_path, model, target_layer, target_class):
     original_image = cv2.imread(image_path, 1)[:, :, ::-1]
-    input_tensor = to_tensor(image_path).to(device)
-    
+    input_tensor = preprocess_img(image_path).to(device)
     # 前向传播
     model.zero_grad()
     output = model(input_tensor)
     class_activation = output[:, target_class]
-    
     # 反向传播
     class_activation.backward()
     gradients = target_layer.gradients 
@@ -42,14 +39,13 @@ def layercam(image_path, model, target_layer, target_class):
     cam_normalized = cam / np.max(cam)
     heatmap_colored = cv2.applyColorMap(np.uint8(255 * cam_normalized), cv2.COLORMAP_JET)
     heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
-    
     # 叠加热图到原始图像
     img = heatmap_colored * 0.4 + original_image * 0.6
     img = np.clip(img, 0, 255).astype(np.uint8)
     
     return img
 def gradcam(image_path, model, target_layer, target_class):
-    input_tensor = to_tensor(image_path).to(device)
+    input_tensor = preprocess_img(image_path).to(device)
     model.zero_grad()
     output = model(input_tensor)
     class_activation = output[:, target_class]
