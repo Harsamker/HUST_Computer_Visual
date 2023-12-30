@@ -4,31 +4,36 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
-from skimage.segmentation import slic,quickshift
+from skimage.segmentation import slic, quickshift
 from sklearn.linear_model import LinearRegression
 from tqdm import tqdm
 
 device = "cpu"
 
+
 # 预处理图像的函数
 def preprocess_image(img_np):
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-    ])
+    transform = transforms.Compose(
+        [
+            transforms.ToTensor(),
+        ]
+    )
     img_pil = Image.fromarray((img_np * 255).astype(np.uint8))
     img_tensor = transform(img_pil).unsqueeze(0)
     return img_tensor
+
 
 # LIME解释方法
 def lime_explain(image_path, model, target_class, num_samples=1000, num_segments=200):
     # 读取并预处理图像
     original_image = cv2.imread(image_path)
     original_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
-    #取消归一化
+    # 取消归一化
     img = np.float32(cv2.resize(original_image, (224, 224)))
-    #两种不同的生成超像素的策略
-    #superpixels = slic(img, n_segments=num_segments, compactness=10, sigma=1)
-    superpixels = quickshift(img, kernel_size=4, max_dist=150, ratio=0.1)
+    # 两种不同的生成超像素的策略
+    superpixels = quickshift(img, kernel_size=2, max_dist=150, ratio=0.1)
+    # superpixels = quickshift(img, kernel_size=4, max_dist=150, ratio=0.1)
+    # superpixels = slic(img, n_segments=num_segments, compactness=10, sigma=1)
     num_superpixels = np.unique(superpixels).shape[0]
 
     # 生成扰动图像
@@ -74,25 +79,28 @@ def lime_explain(image_path, model, target_class, num_samples=1000, num_segments
 
     return superimposed_img
 
+
 # 加载模型
 model = torch.load("Exp4/torch_alex.pth")
 model.eval()
 
 # 类别映射
-typemap = {0: 'Cat', 1: 'Dog'}
+typemap = {0: "Cat", 1: "Dog"}
 
 # 图像路径
 image_paths = ["Exp4/data4/dog.jpg", "Exp4/data4/cat.jpg", "Exp4/data4/both.jpg"]
 
 # 可视化LIME解释
 fig, axes = plt.subplots(len(image_paths), len(typemap), figsize=(10, 15))  # 3行2列的子图
-numsample=1000
+numsample = 2000
 for i, img_path in enumerate(image_paths):
     for j, target_class in enumerate(typemap):
         lime_image = lime_explain(img_path, model, target_class, num_samples=numsample)
         axes[i, j].imshow(lime_image)
-        axes[i, j].axis('off')
-        axes[i, j].set_title(f"{image_paths[i].split('/')[-1]}: {typemap[target_class]}")
+        axes[i, j].axis("off")
+        axes[i, j].set_title(
+            f"{image_paths[i].split('/')[-1]}: {typemap[target_class]}"
+        )
 fig.suptitle("LIME Explanation", fontsize=16)
 plt.tight_layout()
 plt.tight_layout()
