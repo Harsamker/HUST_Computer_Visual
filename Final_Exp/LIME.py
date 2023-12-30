@@ -31,8 +31,8 @@ def lime_explain(image_path, model, target_class, num_samples=1000, num_segments
     # 取消归一化
     img = np.float32(cv2.resize(original_image, (224, 224)))
     # 两种不同的生成超像素的策略
-    superpixels = quickshift(img, kernel_size=2, max_dist=150, ratio=0.1)
-    # superpixels = quickshift(img, kernel_size=4, max_dist=150, ratio=0.1)
+    #superpixels = quickshift(img, kernel_size=2, max_dist=150, ratio=0.1)
+    superpixels = quickshift(img, kernel_size=4, max_dist=150, ratio=0.1)
     # superpixels = slic(img, n_segments=num_segments, compactness=10, sigma=1)
     num_superpixels = np.unique(superpixels).shape[0]
 
@@ -66,7 +66,7 @@ def lime_explain(image_path, model, target_class, num_samples=1000, num_segments
     if max_value != min_value:
         explanation = (explanation - min_value) / (max_value - min_value)
     else:
-        explanation.fill(0)  # 如果最大值等于最小值，则将所有值设置为0.5，或者根据实际情况选择一个合适的默认值
+        explanation.fill(0)
 
     # 创建热图
     heatmap = np.uint8(255 * explanation)
@@ -92,7 +92,7 @@ image_paths = ["Exp4/data4/dog.jpg", "Exp4/data4/cat.jpg", "Exp4/data4/both.jpg"
 
 # 可视化LIME解释
 fig, axes = plt.subplots(len(image_paths), len(typemap), figsize=(10, 15))  # 3行2列的子图
-numsample = 2000
+numsample = 1000
 for i, img_path in enumerate(image_paths):
     for j, target_class in enumerate(typemap):
         lime_image = lime_explain(img_path, model, target_class, num_samples=numsample)
