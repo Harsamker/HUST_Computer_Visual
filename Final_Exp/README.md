@@ -7,7 +7,10 @@
 结课报告放在该目录下的报告文件夹中
 LIME方法放在目录下的 `LIME.py`文件中，Grad-CAM++与ScoreCAM方法放在该目录下的 `GradCAM++&ScoreCAM.py`文件中
 所用到的图片放在 `data4`文件夹中
-所使用的模型为实验四中所给的 `AlexNet`预训练模型，为该目录中的 `torch_alex.pth`文件
+所使用的模型为实验四中所给的 `AlexNet`预训练模型，是该目录中的 `torch_alex.pth`文件
 
+文件组织结构如下所示：
+
+![1704762460829](image/README/1704762460829.png)
 
 感谢老师和助教的辛勤付出和努力！
