@@ -11,7 +11,6 @@ from tqdm import tqdm
 device = "cpu"
 
 
-# 预处理图像的函数
 def preprocess_image(img_np):
     transform = transforms.Compose(
         [
@@ -25,13 +24,11 @@ def preprocess_image(img_np):
 
 # LIME解释方法
 def lime_explain(image_path, model, target_class, num_samples=1000, num_segments=200):
-    # 读取并预处理图像
     original_image = cv2.imread(image_path)
     original_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
-    # 取消归一化
     img = np.float32(cv2.resize(original_image, (224, 224)))
     # 两种不同的生成超像素的策略
-    #superpixels = quickshift(img, kernel_size=2, max_dist=150, ratio=0.1)
+    # superpixels = quickshift(img, kernel_size=2, max_dist=150, ratio=0.1)
     superpixels = quickshift(img, kernel_size=4, max_dist=150, ratio=0.1)
     # superpixels = slic(img, n_segments=num_segments, compactness=10, sigma=1)
     num_superpixels = np.unique(superpixels).shape[0]
@@ -52,14 +49,11 @@ def lime_explain(image_path, model, target_class, num_samples=1000, num_segments
     # 训练线性模型
     preds = np.array(preds)
     model_linear = LinearRegression().fit(perturbations, preds)
-
-    # 获取权重并映射到超像素
     coef = model_linear.coef_
     explanation = np.zeros(superpixels.shape)
     for i in range(num_superpixels):
         if np.any(superpixels == i):
             explanation[superpixels == i] = coef[i]
-
     # 归一化
     max_value = explanation.max()
     min_value = explanation.min()
@@ -67,16 +61,12 @@ def lime_explain(image_path, model, target_class, num_samples=1000, num_segments
         explanation = (explanation - min_value) / (max_value - min_value)
     else:
         explanation.fill(0)
-
     # 创建热图
     heatmap = np.uint8(255 * explanation)
     heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
     heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
-
-    # 叠加热图到原始图像
     superimposed_img = heatmap * 0.4 + original_image * 0.6
     superimposed_img = np.clip(superimposed_img, 0, 255).astype(np.uint8)
-
     return superimposed_img
 
 
